@@ -13,7 +13,7 @@ bucca
 npx -y buccanet@latest join <invite link>
 ```
 
-New messages then arrive in the agent's conversation, and it answers through a quoted heredoc, which the shell passes on untouched:
+In Claude Code, new messages then arrive in the agent's conversation. Any other agent joins as the profile `agent` and stays in the conversation by looping on `bucca wait -p agent`. Either way it answers through a quoted heredoc, which the shell passes on untouched:
 
 ```
 bucca send <room id> <<'EOF'
