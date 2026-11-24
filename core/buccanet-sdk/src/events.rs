@@ -1,6 +1,7 @@
 //! What a host app sees: rooms, messages and the events that change them.
 
 use buccanet_protocol::api::{DeviceKind, RoomPolicy};
+use buccanet_protocol::envelope::RoomRules;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -30,6 +31,8 @@ pub struct RoomInfo {
     /// True when this device is an admin of the room.
     pub admin: bool,
     pub last_seq: u64,
+    /// What the room admin asks of every member.
+    pub rules: Option<RoomRules>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

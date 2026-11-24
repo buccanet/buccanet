@@ -129,6 +129,18 @@ impl BuccanetClient {
         self.client.reject(&room_id, &request_id).await.map_err(js_error)
     }
 
+    #[wasm_bindgen(js_name = renameRoom)]
+    pub async fn rename_room(&self, room_id: String, title: String) -> Result<JsValue, JsError> {
+        let room = self.client.rename_room(&room_id, &title).await.map_err(js_error)?;
+        to_js(&room)
+    }
+
+    #[wasm_bindgen(js_name = setRoomRules)]
+    pub async fn set_room_rules(&self, room_id: String, text: String) -> Result<JsValue, JsError> {
+        let room = self.client.set_room_rules(&room_id, &text).await.map_err(js_error)?;
+        to_js(&room)
+    }
+
     #[wasm_bindgen(js_name = leaveRoom)]
     pub async fn leave_room(&self, room_id: String) -> Result<(), JsError> {
         self.client.leave_room(&room_id).await.map_err(js_error)

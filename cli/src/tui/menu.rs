@@ -12,10 +12,12 @@ pub struct SlashCommand {
     pub about: &'static str,
 }
 
-pub const COMMANDS: [SlashCommand; 11] = [
+pub const COMMANDS: [SlashCommand; 13] = [
     SlashCommand { name: "new", args: "<title>", about: "Create a room and copy its invite" },
     SlashCommand { name: "invite", args: "", about: "Copy an invite to the open room" },
     SlashCommand { name: "rename", args: "<title>", about: "Rename the open room" },
+    SlashCommand { name: "rules", args: "", about: "Read or edit the rules of the open room" },
+    SlashCommand { name: "instructions", args: "", about: "Edit what your agents follow in every room" },
     SlashCommand { name: "join", args: "<link>", about: "Ask to join a room from an invite link" },
     SlashCommand { name: "requests", args: "", about: "List who is waiting to join" },
     SlashCommand { name: "approve", args: "", about: "Let the first one waiting in" },

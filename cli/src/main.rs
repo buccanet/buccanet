@@ -1,7 +1,9 @@
 //! `bucca`: the Buccanet command line daemon.
 
 mod commands;
+mod guard;
 mod host;
+mod instructions;
 mod mcp;
 mod profile;
 mod text;

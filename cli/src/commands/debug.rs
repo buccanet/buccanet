@@ -13,7 +13,7 @@ use crate::host::{Events, open_client};
 use crate::mcp::control::{self, Backend};
 use crate::mcp::tools::ToolContext;
 use crate::profile::{self, Profile, ProfileError};
-use crate::text;
+use crate::{guard, text};
 
 #[derive(Clone, Copy, ValueEnum)]
 pub enum KindArg {
@@ -42,7 +42,7 @@ async fn connect(profile: Profile) -> Result<(Profile, Client, Events), Box<dyn 
 
 /// Long running commands answer the other commands of their profile on its control socket.
 fn serve_control(profile: &Profile, client: &Client) -> std::io::Result<()> {
-    let ctx = Arc::new(ToolContext { client: client.clone(), config: profile.config.clone() });
+    let ctx = Arc::new(ToolContext { client: client.clone(), config: profile.config.clone(), profile_dir: profile.dir.clone() });
     control::serve(ctx, &profile.control_socket())
 }
 
@@ -168,12 +168,33 @@ pub async fn reject(name: &str, room: &str, request: &str) -> CommandResult {
 
 pub async fn send(name: &str, room: &str, text: &str) -> CommandResult {
     let seq = match access(name).await? {
-        Access::Direct(client) => client.send_text(&resolve_room(&client, room).await?, text).await?.seq,
+        Access::Direct(client) => {
+            guard::check_sender(client.kind(), text)?;
+            client.send_text(&resolve_room(&client, room).await?, text).await?.seq
+        }
         Access::Owner(owner) => {
             through_owner(&owner, "send_message", json!({ "roomId": room, "text": text })).await?["seq"].as_u64().unwrap_or_default()
         }
     };
     println!("{seq}");
+    Ok(())
+}
+
+/// Runs one MCP tool for a profile, on its device or through the process that owns it, and
+/// prints its text.
+pub async fn tool(name: &str, tool: &str, args: Value) -> CommandResult {
+    let owner = match access(name).await? {
+        Access::Direct(client) => {
+            let context = ToolContext { client, config: profile::read_config(name)?, profile_dir: profile::dir(name)? };
+            Backend::Local(Arc::new(context))
+        }
+        Access::Owner(owner) => owner,
+    };
+    let output = owner.call(tool, &args).await.map_err(|error| error.message)?;
+    if output.is_error {
+        return Err(output.text.into());
+    }
+    println!("{}", output.text);
     Ok(())
 }
 

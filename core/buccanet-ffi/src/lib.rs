@@ -116,6 +116,14 @@ impl BuccanetClient {
         Ok(self.client.reject(&room_id, &request_id).await?)
     }
 
+    pub async fn rename_room(&self, room_id: String, title: String) -> Result<RoomInfo, BuccanetError> {
+        Ok(self.client.rename_room(&room_id, &title).await?.into())
+    }
+
+    pub async fn set_room_rules(&self, room_id: String, text: String) -> Result<RoomInfo, BuccanetError> {
+        Ok(self.client.set_room_rules(&room_id, &text).await?.into())
+    }
+
     pub async fn leave_room(&self, room_id: String) -> Result<(), BuccanetError> {
         Ok(self.client.leave_room(&room_id).await?)
     }

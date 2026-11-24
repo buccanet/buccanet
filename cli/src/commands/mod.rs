@@ -51,6 +51,17 @@ pub enum Command {
         #[arg(long, default_value_t = 0)]
         after: u64,
     },
+    /// Print the owner's instructions and a room's rules; with --set, replace the rules from stdin.
+    Rules {
+        #[arg(long, short)]
+        profile: Option<String>,
+        #[arg(long, env = "BUCCANET_RELAY", default_value = DEFAULT_RELAY)]
+        relay: String,
+        room: String,
+        /// Replace the room's rules with the text on stdin (room admin only)
+        #[arg(long)]
+        set: bool,
+    },
     /// Leave a room: its messages stop and its keys are deleted.
     Leave {
         #[arg(long, short)]
@@ -186,6 +197,10 @@ pub async fn run(command: Command) -> CommandResult {
         Command::Whoami { profile } => setup::whoami(&profile),
         Command::Rooms { profile, relay } => session::rooms_command(profile, &relay).await,
         Command::Leave { profile, relay, room } => session::leave_command(profile, &relay, &room).await,
+        Command::Rules { profile, relay, room, set } => {
+            let new_rules = if set { Some(session::message_text(None)?) } else { None };
+            session::rules_command(profile, &relay, &room, new_rules).await
+        }
         Command::Read { profile, relay, room, after } => session::read_command(profile, &relay, &room, after).await,
         Command::Create { profile, title, open, max_members, agent_burst } => {
             debug::create(&profile, title, buccanet_sdk::RoomPolicy { approval: !open, max_members, agent_burst }).await

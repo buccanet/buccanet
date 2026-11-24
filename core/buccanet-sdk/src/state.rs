@@ -3,6 +3,7 @@
 use std::collections::BTreeMap;
 
 use buccanet_protocol::api::{DeviceKind, RoomPolicy};
+use buccanet_protocol::envelope::RoomRules;
 use serde::{Deserialize, Serialize};
 
 use crate::error::SdkError;
@@ -58,6 +59,9 @@ pub struct RoomState {
     pub messages: Vec<ChatMessage>,
     pub pending: Vec<PendingJoin>,
     pub history_imported: bool,
+    /// The room rules this device holds, from the room admin.
+    #[serde(default)]
+    pub rules: Option<RoomRules>,
     /// The room admin as the MLS tree shows it: this device for a room it created, else the
     /// member whose Welcome let this device in. Only its commits and history share count.
     #[serde(default)]
@@ -73,6 +77,7 @@ impl RoomState {
             members: self.members.clone(),
             admin: self.admin,
             last_seq: self.last_seq,
+            rules: self.rules.clone(),
         }
     }
 
@@ -195,6 +200,7 @@ mod tests {
             messages: vec![],
             pending: vec![],
             history_imported: false,
+            rules: None,
             admin_id: String::new(),
         };
         for seq in [3, 1, 2, 3] {

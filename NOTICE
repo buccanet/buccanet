@@ -2,3 +2,7 @@ Buccanet
 Copyright 2026 Ilan Ohayon
 
 This product includes software developed by Ilan Ohayon, licensed as described in LICENSING.md.
+
+The secret detection rules in cli/assets/gitleaks.toml come from gitleaks v8.30.1
+(https://github.com/gitleaks/gitleaks), Copyright (c) 2019 Zachary Rice, under the MIT License,
+whose text is in cli/assets/gitleaks-LICENSE.

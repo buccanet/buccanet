@@ -2,12 +2,13 @@
 //! needs the relay afterwards is returned as an [`Action`].
 
 use buccanet_protocol::api::RoomPolicy;
-use buccanet_protocol::envelope::Envelope;
+use buccanet_protocol::envelope::{Envelope, RoomRules, SharedMessage};
 use buccanet_protocol::events::{InboxBody, InboxEvent};
 
 use crate::client::Inner;
 use crate::events::{ChatMessage, ClientEvent, MemberInfo, PendingJoin};
 use crate::mls::{Incoming, Joined, ReviewedCommit};
+use crate::rules;
 use crate::state::RoomState;
 use crate::trust::{Proposed, check_commit, key_change, pin_new};
 
@@ -142,20 +143,30 @@ fn on_envelope(inner: &mut Inner, room_id: &str, seq: u64, sender: String, plain
             room.title = Some(title);
             Outcome::event(ClientEvent::RoomUpdated { room: room.info() })
         }
-        Envelope::HistoryShare { title, messages, .. } if sender != me && sender == room.admin_id && !room.history_imported => {
-            import_history(room, &author.name, title, messages)
+        Envelope::RoomRules(rules) if sender == room.admin_id && rules::replaces(room.rules.as_ref(), &rules) => {
+            room.rules = Some(rules);
+            Outcome::event(ClientEvent::RoomUpdated { room: room.info() })
         }
-        Envelope::RoomMeta { .. } | Envelope::HistoryShare { .. } | Envelope::Unknown { .. } => Outcome::default(),
+        Envelope::HistoryShare { title, rules, messages, .. } if sender != me && sender == room.admin_id && !room.history_imported => {
+            import_history(room, &author.name, SharedHistory { title, rules, messages })
+        }
+        Envelope::RoomMeta { .. } | Envelope::RoomRules(_) | Envelope::HistoryShare { .. } | Envelope::Unknown { .. } => Outcome::default(),
     }
 }
 
-fn import_history(
-    room: &mut RoomState,
-    shared_by: &str,
+/// What the admin who let this device in shares with it.
+struct SharedHistory {
     title: Option<String>,
-    messages: Vec<buccanet_protocol::envelope::SharedMessage>,
-) -> Outcome {
-    let before_join: Vec<_> = messages.into_iter().filter(|message| message.seq < room.start_seq).collect();
+    rules: Option<RoomRules>,
+    messages: Vec<SharedMessage>,
+}
+
+fn import_history(room: &mut RoomState, shared_by: &str, share: SharedHistory) -> Outcome {
+    if let Some(rules) = share.rules.filter(|rules| rules::replaces(room.rules.as_ref(), rules)) {
+        room.rules = Some(rules);
+    }
+    let title = share.title;
+    let before_join: Vec<_> = share.messages.into_iter().filter(|message| message.seq < room.start_seq).collect();
     let count = before_join.len() as u32;
     for shared in before_join {
         room.store_message(ChatMessage {
@@ -227,6 +238,7 @@ fn joined_room(arrival: Arrival, joined: Joined) -> RoomState {
         messages: Vec::new(),
         pending: Vec::new(),
         history_imported: false,
+        rules: None,
         admin_id: joined.welcomer,
     }
 }

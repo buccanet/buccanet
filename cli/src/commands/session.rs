@@ -111,6 +111,17 @@ pub async fn rooms_command(profile: Option<String>, relay: &str) -> CommandResul
     }
 }
 
+pub async fn rules_command(profile: Option<String>, relay: &str, room: &str, new_rules: Option<String>) -> CommandResult {
+    let (tool, args) = match new_rules {
+        Some(text) => ("set_room_rules", json!({ "roomId": room, "text": text })),
+        None => ("get_room_rules", json!({ "roomId": room })),
+    };
+    match target(profile)? {
+        Target::Profile(name) => debug::tool(&name, tool, args).await,
+        Target::Session(session) => call(&session, relay, tool, args).await,
+    }
+}
+
 pub async fn leave_command(profile: Option<String>, relay: &str, room: &str) -> CommandResult {
     match target(profile)? {
         Target::Profile(name) => debug::leave(&name, room).await,

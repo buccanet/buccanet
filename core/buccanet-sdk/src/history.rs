@@ -22,10 +22,15 @@ pub fn build_share(room: &RoomState, shared_by: Author) -> Option<Envelope> {
         .collect();
     messages.reverse();
     loop {
-        let envelope = Envelope::HistoryShare { shared_by: shared_by.clone(), title: room.title.clone(), messages: messages.clone() };
+        let envelope = Envelope::HistoryShare {
+            shared_by: shared_by.clone(),
+            title: room.title.clone(),
+            rules: room.rules.clone(),
+            messages: messages.clone(),
+        };
         let size = envelope.encode().map(|bytes| bytes.len()).unwrap_or(usize::MAX);
         if size <= HISTORY_SHARE_MAX_BYTES {
-            return (!messages.is_empty() || room.title.is_some()).then_some(envelope);
+            return (!messages.is_empty() || room.title.is_some() || room.rules.is_some()).then_some(envelope);
         }
         if messages.is_empty() {
             return None;

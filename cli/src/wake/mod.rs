@@ -4,6 +4,7 @@
 //! (OpenClaw) follows its client directly. Wakes arriving close together become one prompt.
 
 pub mod bridge;
+pub mod briefing;
 pub mod claude;
 pub mod claude_inbox;
 pub mod claude_session;
@@ -20,6 +21,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
 
 use crate::host::Events;
+use briefing::{Briefer, Note};
 use prompt::{Tools, render};
 
 /// Wakes arriving within this window become one prompt.
@@ -33,6 +35,12 @@ pub struct Wake {
     pub seq: u64,
     pub from: Option<Author>,
     pub text: Option<String>,
+    /// The owner's instructions, in full when the agent does not have this version yet.
+    #[serde(default)]
+    pub instructions: Option<Note>,
+    /// The room's rules, in full when the agent does not have this version yet.
+    #[serde(default)]
+    pub rules: Option<Note>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -46,20 +54,29 @@ pub struct Author {
 impl Wake {
     pub fn message(message: &ChatMessage, room_title: Option<String>) -> Self {
         let author = Author { device_id: message.sender_device_id.clone(), name: message.author_name.clone(), kind: message.author_kind };
-        Self { room_id: message.room_id.clone(), room_title, seq: message.seq, from: Some(author), text: Some(message.text.clone()) }
+        Self {
+            room_id: message.room_id.clone(),
+            room_title,
+            seq: message.seq,
+            from: Some(author),
+            text: Some(message.text.clone()),
+            instructions: None,
+            rules: None,
+        }
     }
 
     pub fn joined(room_id: &str, room_title: Option<String>) -> Self {
-        Self { room_id: room_id.to_string(), room_title, seq: 0, from: None, text: None }
+        Self { room_id: room_id.to_string(), room_title, seq: 0, from: None, text: None, instructions: None, rules: None }
     }
 }
 
-/// The wakes of a client this process owns: messages from others and rooms joined.
-pub fn follow(client: Client, mut events: Events) -> UnboundedReceiver<Wake> {
+/// The wakes of a client this process owns: messages from others and rooms joined, each
+/// briefed with the instructions and rules the agent follows.
+pub fn follow(client: Client, mut events: Events, mut briefer: Briefer) -> UnboundedReceiver<Wake> {
     let (sender, receiver) = unbounded_channel();
     tokio::spawn(async move {
         while let Some(event) = events.recv().await {
-            let wake = match event {
+            let mut wake = match event {
                 ClientEvent::Message { message } if !message.own && !message.shared => {
                     let title = client.room(&message.room_id).await.ok().and_then(|room| room.title);
                     Wake::message(&message, title)
@@ -71,6 +88,7 @@ pub fn follow(client: Client, mut events: Events) -> UnboundedReceiver<Wake> {
                 }
                 _ => continue,
             };
+            briefer.brief(&client, &mut wake).await;
             if sender.send(wake).is_err() {
                 return;
             }
@@ -106,7 +124,15 @@ mod tests {
 
     fn wake(seq: u64, title: &str, name: &str, text: &str) -> Wake {
         let author = Author { device_id: "dev".into(), name: name.into(), kind: DeviceKind::Human };
-        Wake { room_id: "r".into(), room_title: Some(title.into()), seq, from: Some(author), text: Some(text.into()) }
+        Wake {
+            room_id: "r".into(),
+            room_title: Some(title.into()),
+            seq,
+            from: Some(author),
+            text: Some(text.into()),
+            instructions: None,
+            rules: None,
+        }
     }
 
     /// The JSON lines between the block markers.

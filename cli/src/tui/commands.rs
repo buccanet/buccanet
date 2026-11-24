@@ -3,6 +3,7 @@
 use buccanet_sdk::RoomPolicy;
 
 use super::app::App;
+use super::external::External;
 use crate::text;
 
 pub const HELP: &str = "Type / for commands · Tab: rooms · ↑↓ pick a room · wheel or PgUp/PgDn: scroll · Ctrl+C twice: quit";
@@ -33,6 +34,11 @@ pub async fn submit(app: &mut App) {
         }
         "new" => new_room(app, rest).await,
         "rename" => rename(app, rest).await,
+        "rules" => rules(app),
+        "instructions" => {
+            app.external = Some(External::EditInstructions);
+            Ok(String::new())
+        }
         "invite" => invite(app).await,
         "join" => join(app, rest).await,
         "requests" => Ok(requests(app)),
@@ -66,6 +72,23 @@ async fn new_room(app: &mut App, title: &str) -> Result<String, String> {
     app.selected = app.rooms.iter().position(|candidate| candidate.room_id == room.room_id).unwrap_or(0);
     app.load_messages().await;
     Ok(format!("Room created. {}", share(&link)))
+}
+
+/// The room admin edits the rules in their editor; any other member reads them.
+fn rules(app: &mut App) -> Result<String, String> {
+    let room = app.room().cloned().ok_or("Pick a room first.")?;
+    let text = room.rules.as_ref().map(|rules| rules.text.clone()).unwrap_or_default();
+    app.external = Some(if room.admin {
+        External::EditRules { room_id: room.room_id, text }
+    } else {
+        let version = room.rules.as_ref().map_or(0, |rules| rules.version);
+        External::Read(if text.is_empty() {
+            "This room has no rules yet.".into()
+        } else {
+            format!("Room rules, version {version}\n\n{text}\n")
+        })
+    });
+    Ok(String::new())
 }
 
 async fn rename(app: &mut App, title: &str) -> Result<String, String> {

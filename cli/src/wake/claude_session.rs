@@ -5,6 +5,7 @@
 
 use std::sync::Arc;
 
+use super::briefing::Briefer;
 use super::claude_inbox::ClaudeInbox;
 use super::{command_prompt, follow, next_batch};
 use crate::commands::CommandResult;
@@ -44,9 +45,9 @@ impl ClaudeSession {
 pub async fn serve(profile: Profile, inbox: ClaudeInbox) -> CommandResult {
     let (client, events) = open_client(&profile).await?;
     client.sync().await?;
-    let ctx = Arc::new(ToolContext { client: client.clone(), config: profile.config.clone() });
+    let ctx = Arc::new(ToolContext { client: client.clone(), config: profile.config.clone(), profile_dir: profile.dir.clone() });
     control::serve(ctx, &profile.control_socket())?;
-    let mut wakes = follow(client.clone(), events);
+    let mut wakes = follow(client.clone(), events, Briefer::new(profile.dir.clone()));
     tokio::spawn(async move { client.run().await });
     while let Some(batch) = next_batch(&mut wakes).await {
         if let Err(error) = inbox.deliver(&command_prompt(&batch)).await {

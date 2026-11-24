@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 
 use buccanet_sdk::{ChatMessage, Client, ClientEvent, PendingJoin, RoomInfo};
 
+use super::external::External;
 use super::menu::{self, MenuItem, RoomContext};
 use crate::profile;
 use crate::text;
@@ -41,6 +42,8 @@ pub struct App {
     pub picked: usize,
     /// A command that undoes something, asked once, and when: running it again soon confirms it.
     pending_confirm: Option<(String, Instant)>,
+    /// Another program to hand the terminal to before the next draw, such as the editor.
+    pub external: Option<External>,
 }
 
 /// How long a first Ctrl+C waits for the second one.
@@ -73,6 +76,7 @@ impl App {
             quit_armed: None,
             picked: 0,
             pending_confirm: None,
+            external: None,
         };
         app.reload().await;
         app

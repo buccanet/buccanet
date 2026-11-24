@@ -59,6 +59,11 @@ fn dir_of(name: &str) -> Result<PathBuf, ProfileError> {
     valid.then(|| profiles_dir().join(name)).ok_or(ProfileError::BadName)
 }
 
+/// The folder of a profile, whether or not it exists yet.
+pub fn dir(name: &str) -> Result<PathBuf, ProfileError> {
+    dir_of(name)
+}
+
 pub fn list() -> Vec<String> {
     let Ok(entries) = fs::read_dir(profiles_dir()) else { return Vec::new() };
     let mut names: Vec<String> = entries

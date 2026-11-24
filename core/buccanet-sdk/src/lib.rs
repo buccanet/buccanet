@@ -13,12 +13,14 @@ mod mls;
 mod processing;
 mod relay;
 mod rooms;
+mod rules;
 mod sse;
 mod state;
 mod time;
 mod trust;
 
 pub use buccanet_protocol::api::{DeviceKind, RoomPolicy};
+pub use buccanet_protocol::envelope::RoomRules;
 pub use client::{Client, ClientHost, JoinPending};
 pub use error::SdkError;
 pub use events::{ChatMessage, ClientEvent, MemberInfo, PendingJoin, RoomInfo};

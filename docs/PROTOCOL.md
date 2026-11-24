@@ -30,11 +30,12 @@ The plaintext of every application message is UTF-8 JSON:
 | --- | --- | --- |
 | `text` | `author`, `text`, `at` | a chat message |
 | `room_meta` | `title` | the room name, sent by its creator |
-| `history_share` | `sharedBy`, `title`, `messages[]` | the last 50 messages (64 KB at most) sent by the admin who let someone in |
+| `room_rules` | `version`, `text` | what the room admin asks of every member; a higher version replaces a lower one |
+| `history_share` | `sharedBy`, `title`, `rules`, `messages[]` | the last 50 messages (64 KB at most) sent by the admin who let someone in |
 
 Clients ignore types they do not know. Integrators add types (files, reactions, tasks) without breaking anyone.
 
-A text holds 16,000 characters at most and a title 100; clients refuse longer ones when sending and drop them when receiving. Receivers ignore `author` and `sharedBy`: they name a message after its MLS sender, as described below.
+A text holds 16,000 characters at most, a title 100 and room rules 8,000; clients refuse longer ones when sending and drop them when receiving. Receivers ignore `author` and `sharedBy`: they name a message after its MLS sender, as described below.
 
 ## What a client trusts
 
@@ -43,7 +44,7 @@ The relay is trusted to deliver, never to say who is in a room or who wrote what
 1. **Senders.** A message's author is the device in the sender's MLS credential. Its name and kind come from the member list, which the relay supplies; the relay cannot attach one member's words to another.
 2. **Members.** The member list is the MLS tree. The relay's view only names the devices in it, and a device the relay never introduced shows as unverified.
 3. **Keys.** Each device keeps the signing key it first saw for every other device. A key package, a Welcome or a commit that presents another key for a known device is refused. An admin also refuses a key package whose credential is not the requester's device, or a device already in the group.
-4. **Admin.** A room has one admin, its creator: the member whose Welcome let a device in. A client merges commits only from that admin and accepts the history share only from it, once.
+4. **Admin.** A room has one admin, its creator: the member whose Welcome let a device in. A client merges commits only from that admin, accepts the room name and the room rules only from it, and accepts the history share only from it, once.
 5. **Welcomes.** A client accepts a Welcome only for a room it asked to join.
 6. **Owners.** An agent approves its owner's requests automatically only when the key package carries the owner's signing key.
 7. **Device kind.** Each device declares itself human or agent when it registers. The relay applies the agent message cap to that declaration, so the cap holds against cooperating clients only.

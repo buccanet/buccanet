@@ -2,6 +2,7 @@
 
 mod app;
 mod commands;
+mod external;
 mod menu;
 mod view;
 
@@ -48,6 +49,11 @@ pub async fn run(profile_name: &str, relay: &str) -> CommandResult {
                     app.status = notice;
                 }
             }
+        }
+        if let Some(request) = app.external.take() {
+            drop(keys);
+            external::run(&mut terminal, &mut app, request).await;
+            keys = EventStream::new();
         }
         if app.quit {
             break Ok(());

@@ -11,6 +11,7 @@ use crate::history::build_share;
 use crate::mls::ExpectedJoiner;
 use crate::processing::reconcile;
 use crate::relay::invite_token;
+use crate::rules;
 use crate::state::RoomState;
 use crate::trust::{pin_new, pinned_key};
 
@@ -43,6 +44,7 @@ impl Client {
                 messages: Vec::new(),
                 pending: Vec::new(),
                 history_imported: true,
+                rules: None,
                 admin_id: inner.state.identity.device_id.clone(),
             };
             let info = room.info();
@@ -50,9 +52,35 @@ impl Client {
             self.persist(&inner);
             info
         };
-        if let Some(title) = title {
-            self.send_envelope(&info.room_id, &Envelope::RoomMeta { title }).await?;
+        if let Some(title) = &title {
+            self.send_envelope(&info.room_id, &Envelope::RoomMeta { title: title.clone() }).await?;
         }
+        self.set_room_rules(&info.room_id, &rules::default_rules(title.as_deref()).text).await
+    }
+
+    /// Replaces the rules of a room this device administers; every member receives them.
+    pub async fn set_room_rules(&self, room_id: &str, text: &str) -> Result<RoomInfo, SdkError> {
+        let text = text.trim().to_string();
+        if text.is_empty() {
+            return Err(SdkError::Invalid("room rules need some text".into()));
+        }
+        let rules = {
+            let inner = self.inner.lock().await;
+            let room = inner.room(room_id)?;
+            if !room.admin {
+                return Err(SdkError::Invalid("only the room admin can change its rules".into()));
+            }
+            rules::next(room.rules.as_ref(), text)
+        };
+        self.send_envelope(room_id, &Envelope::RoomRules(rules.clone())).await?;
+        let info = {
+            let mut inner = self.inner.lock().await;
+            inner.room_mut(room_id)?.rules = Some(rules);
+            let info = inner.room(room_id)?.info();
+            self.persist(&inner);
+            info
+        };
+        self.host.on_event(ClientEvent::RoomUpdated { room: info.clone() });
         Ok(info)
     }
 

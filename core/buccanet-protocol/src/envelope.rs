@@ -14,6 +14,8 @@ pub const HISTORY_SHARE_MAX_MESSAGES: usize = 50;
 pub const TEXT_MAX_CHARS: usize = 16_000;
 /// Longest room title, in characters.
 pub const TITLE_MAX_CHARS: usize = 100;
+/// Longest room rules, in characters.
+pub const RULES_MAX_CHARS: usize = 8_000;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RawEnvelope {
@@ -40,11 +42,21 @@ pub struct SharedMessage {
     pub at: String,
 }
 
+/// What the room admin asks of every member, people and agents alike. A higher version
+/// replaces a lower one.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RoomRules {
+    pub version: u32,
+    pub text: String,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Envelope {
     Text { author: Author, text: String, at: String },
     RoomMeta { title: String },
-    HistoryShare { shared_by: Author, title: Option<String>, messages: Vec<SharedMessage> },
+    RoomRules(RoomRules),
+    HistoryShare { shared_by: Author, title: Option<String>, rules: Option<RoomRules>, messages: Vec<SharedMessage> },
     Unknown { kind: String },
 }
 
@@ -65,6 +77,8 @@ struct RoomMetaBody {
 struct HistoryBody {
     shared_by: Author,
     title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    rules: Option<RoomRules>,
     messages: Vec<SharedMessage>,
 }
 
@@ -93,8 +107,10 @@ impl Envelope {
         match self {
             Envelope::Text { text, .. } => within(text, TEXT_MAX_CHARS, "text"),
             Envelope::RoomMeta { title } => within(title, TITLE_MAX_CHARS, "title"),
-            Envelope::HistoryShare { title, messages, .. } => {
+            Envelope::RoomRules(rules) => within(&rules.text, RULES_MAX_CHARS, "rules"),
+            Envelope::HistoryShare { title, rules, messages, .. } => {
                 within(title.as_deref().unwrap_or_default(), TITLE_MAX_CHARS, "title")?;
+                within(rules.as_ref().map_or("", |rules| rules.text.as_str()), RULES_MAX_CHARS, "rules")?;
                 if messages.len() > HISTORY_SHARE_MAX_MESSAGES {
                     return Err(EnvelopeError::TooLong("history share"));
                 }
@@ -111,9 +127,15 @@ impl Envelope {
                 ("text", serde_json::to_value(TextBody { author: author.clone(), text: text.clone(), at: at.clone() })?)
             }
             Envelope::RoomMeta { title } => ("room_meta", serde_json::to_value(RoomMetaBody { title: title.clone() })?),
-            Envelope::HistoryShare { shared_by, title, messages } => (
+            Envelope::RoomRules(rules) => ("room_rules", serde_json::to_value(rules)?),
+            Envelope::HistoryShare { shared_by, title, rules, messages } => (
                 "history_share",
-                serde_json::to_value(HistoryBody { shared_by: shared_by.clone(), title: title.clone(), messages: messages.clone() })?,
+                serde_json::to_value(HistoryBody {
+                    shared_by: shared_by.clone(),
+                    title: title.clone(),
+                    rules: rules.clone(),
+                    messages: messages.clone(),
+                })?,
             ),
             Envelope::Unknown { .. } => return Err(EnvelopeError::UnknownType),
         };
@@ -138,9 +160,10 @@ impl Envelope {
                 Envelope::Text { author: body.author, text: body.text, at: body.at }
             }
             "room_meta" => Envelope::RoomMeta { title: serde_json::from_value::<RoomMetaBody>(raw.body)?.title },
+            "room_rules" => Envelope::RoomRules(serde_json::from_value(raw.body)?),
             "history_share" => {
                 let body: HistoryBody = serde_json::from_value(raw.body)?;
-                Envelope::HistoryShare { shared_by: body.shared_by, title: body.title, messages: body.messages }
+                Envelope::HistoryShare { shared_by: body.shared_by, title: body.title, rules: body.rules, messages: body.messages }
             }
             _ => Envelope::Unknown { kind: raw.kind },
         })
@@ -159,6 +182,18 @@ mod tests {
         let future = br#"{"v":1,"type":"reaction","body":{"emoji":"+1"}}"#;
         assert_eq!(Envelope::decode(future).unwrap(), Envelope::Unknown { kind: "reaction".into() });
         assert!(Envelope::decode(br#"{"v":2,"type":"text","body":{}}"#).is_err());
+    }
+
+    #[test]
+    fn rules_round_trip_alone_and_inside_a_history_share() {
+        let rules = RoomRules { version: 2, text: "Only the OCR project.".into() };
+        let alone = Envelope::RoomRules(rules.clone());
+        assert_eq!(Envelope::decode(&alone.encode().unwrap()).unwrap(), alone);
+        let author = Author { name: "Ada".into(), kind: DeviceKind::Human };
+        let share = Envelope::HistoryShare { shared_by: author, title: None, rules: Some(rules), messages: vec![] };
+        assert_eq!(Envelope::decode(&share.encode().unwrap()).unwrap(), share);
+        let older = br#"{"v":1,"type":"history_share","body":{"sharedBy":{"name":"A","kind":"human"},"title":null,"messages":[]}}"#;
+        assert!(matches!(Envelope::decode(older).unwrap(), Envelope::HistoryShare { rules: None, .. }));
     }
 
     #[test]

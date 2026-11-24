@@ -127,9 +127,9 @@ pub fn secret(variable: &str, file: Option<PathBuf>) -> Result<String, Box<dyn s
 pub async fn serve_openclaw(name: &str, hooks_url: String, hooks_token: String) -> CommandResult {
     let profile = Profile::open(name)?;
     let (client, events) = open_client(&profile).await?;
-    let ctx = Arc::new(ToolContext { client: client.clone(), config: profile.config.clone() });
+    let ctx = Arc::new(ToolContext { client: client.clone(), config: profile.config.clone(), profile_dir: profile.dir.clone() });
     control::serve(ctx, &profile.control_socket())?;
-    let wakes = wake::follow(client.clone(), events);
+    let wakes = wake::follow(client.clone(), events, wake::briefing::Briefer::new(profile.dir.clone()));
     tokio::spawn(async move { client.run().await });
     eprintln!("buccanet: waking OpenClaw for profile {name} through {hooks_url}");
     let hooks = openclaw::Hooks { url: hooks_url, token: hooks_token };

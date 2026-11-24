@@ -61,6 +61,9 @@ pub struct RoomInfo {
     pub members: Vec<MemberInfo>,
     pub admin: bool,
     pub last_seq: u64,
+    /// What the room admin asks of every member, and its version (0 before any).
+    pub rules: Option<String>,
+    pub rules_version: u32,
 }
 
 #[derive(Debug, Clone, uniffi::Record)]
@@ -119,6 +122,8 @@ impl From<sdk::RoomInfo> for RoomInfo {
             members: r.members.into_iter().map(Into::into).collect(),
             admin: r.admin,
             last_seq: r.last_seq,
+            rules_version: r.rules.as_ref().map_or(0, |rules| rules.version),
+            rules: r.rules.map(|rules| rules.text),
         }
     }
 }

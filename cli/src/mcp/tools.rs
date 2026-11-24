@@ -1,12 +1,12 @@
 //! The tools every harness gets, whatever its MCP era.
 
-use buccanet_sdk::{ChatMessage, Client, RoomPolicy};
+use buccanet_sdk::{ChatMessage, Client, DeviceKind, RoomPolicy};
 use serde_json::{Value, json};
 
 use super::rpc::{INVALID_PARAMS, RpcError};
 use crate::commands::output::kind_label;
 use crate::profile::ProfileConfig;
-use crate::text;
+use crate::{guard, text};
 
 /// The room policy bounds the relay accepts.
 const MAX_MEMBERS: std::ops::RangeInclusive<u64> = 2..=1000;
@@ -15,6 +15,8 @@ const AGENT_BURST: std::ops::RangeInclusive<u64> = 1..=10_000;
 pub struct ToolContext {
     pub client: Client,
     pub config: ProfileConfig,
+    /// Where the profile lives, for the owner's instructions it may hold.
+    pub profile_dir: std::path::PathBuf,
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -86,6 +88,13 @@ pub fn definitions() -> Vec<Value> {
             json!({ "roomId": room }),
             &["roomId"],
         ),
+        tool("get_room_rules", "Read your owner's instructions and the rules of a room, in full.", json!({ "roomId": room }), &["roomId"]),
+        tool(
+            "set_room_rules",
+            "Replace the rules of a room you administer; every member receives them. Refused unless your owner enabled agent approvals.",
+            json!({ "roomId": room, "text": { "type": "string", "description": "The new rules, in Markdown" } }),
+            &["roomId", "text"],
+        ),
         tool("list_requests", "List pending join requests of a room you administer.", json!({ "roomId": room }), &["roomId"]),
         tool(
             "approve_member",
@@ -145,6 +154,11 @@ pub async fn call(ctx: &ToolContext, name: &str, args: &Value) -> Result<ToolOut
             with_room(ctx, args, move |ctx, room| Box::pin(send_message(ctx, room, text))).await
         }
         "leave_room" => with_room(ctx, args, |ctx, room| Box::pin(leave_room(ctx, room))).await,
+        "get_room_rules" => with_room(ctx, args, |ctx, room| Box::pin(get_room_rules(ctx, room))).await,
+        "set_room_rules" => {
+            let text = arg(args, "text")?.to_string();
+            with_room(ctx, args, move |ctx, room| Box::pin(set_room_rules(ctx, room, text))).await
+        }
         "list_requests" => with_room(ctx, args, |ctx, room| Box::pin(list_requests(ctx, room))).await,
         "approve_member" | "reject_member" => {
             let request = arg(args, "requestId")?.to_string();
@@ -253,6 +267,9 @@ async fn read_messages(ctx: &ToolContext, room: String, after: u64, limit: usize
 }
 
 async fn send_message(ctx: &ToolContext, room: String, text: String) -> ToolOutput {
+    if let Err(leak) = guard::check_sender(ctx.config.kind, &text) {
+        return ToolOutput::failed(leak.to_string());
+    }
     match ctx.client.send_text(&room, &text).await {
         Ok(message) => ToolOutput::ok(format!("Sent as #{}.", message.seq), json!({ "roomId": room, "seq": message.seq })),
         Err(error) => ToolOutput::failed(error.to_string()),
@@ -262,6 +279,42 @@ async fn send_message(ctx: &ToolContext, room: String, text: String) -> ToolOutp
 async fn leave_room(ctx: &ToolContext, room: String) -> ToolOutput {
     match ctx.client.leave_room(&room).await {
         Ok(()) => ToolOutput::ok(format!("You left room {room}."), json!({ "roomId": room, "left": true })),
+        Err(error) => ToolOutput::failed(error.to_string()),
+    }
+}
+
+async fn get_room_rules(ctx: &ToolContext, room: String) -> ToolOutput {
+    let instructions = match crate::instructions::read(&ctx.profile_dir) {
+        Ok(instructions) => instructions,
+        Err(error) => return ToolOutput::failed(format!("your owner's instructions are unreadable: {error}")),
+    };
+    let rules = match ctx.client.room(&room).await {
+        Ok(info) => info.rules,
+        Err(error) => return ToolOutput::failed(error.to_string()),
+    };
+    let rules_text = rules.as_ref().map_or_else(
+        || "This room has no rules yet.".to_string(),
+        |rules| format!("Room rules (version {}), set by its admin:\n{}", rules.version, rules.text),
+    );
+    let text = format!("Your owner's instructions (version {}):\n{}\n\n{rules_text}", instructions.version, instructions.text);
+    ToolOutput::ok(
+        text,
+        json!({ "roomId": room, "instructions": instructions.text, "instructionsVersion": instructions.version, "rules": rules }),
+    )
+}
+
+async fn set_room_rules(ctx: &ToolContext, room: String, text: String) -> ToolOutput {
+    if ctx.config.kind == DeviceKind::Agent && !ctx.config.allow_agent_approvals {
+        return ToolOutput::failed("Your owner has not let agents change room rules. Ask them to.");
+    }
+    if let Err(leak) = guard::check_sender(ctx.config.kind, &text) {
+        return ToolOutput::failed(leak.to_string());
+    }
+    match ctx.client.set_room_rules(&room, &text).await {
+        Ok(info) => {
+            let version = info.rules.map_or(0, |rules| rules.version);
+            ToolOutput::ok(format!("The rules of room {room} are now version {version}."), json!({ "roomId": room, "version": version }))
+        }
         Err(error) => ToolOutput::failed(error.to_string()),
     }
 }

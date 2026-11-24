@@ -16,6 +16,7 @@ use crate::commands::output::kind_label;
 use crate::host::{Events, open_client};
 use crate::profile::{self, Profile, ProfileError};
 use crate::text;
+use crate::wake::briefing::Briefer;
 use crate::wake::claude_inbox::ClaudeInbox;
 use crate::wake::{Wake, next_batch, prompt, socket};
 
@@ -50,11 +51,12 @@ fn server(backend: Backend, inbox: Option<tokio::sync::mpsc::UnboundedSender<Wak
 async fn owner(profile: Profile) -> Result<Server, Box<dyn std::error::Error>> {
     init_logging(&profile);
     let (client, events) = open_client(&profile).await?;
-    let ctx = Arc::new(ToolContext { client: client.clone(), config: profile.config.clone() });
+    let ctx = Arc::new(ToolContext { client: client.clone(), config: profile.config.clone(), profile_dir: profile.dir.clone() });
     control::serve(ctx.clone(), &profile.control_socket())?;
     let server = server(Backend::Local(ctx), ClaudeInbox::from_env().map(spawn_inbox));
     tokio::spawn(async move { client.run().await });
-    tokio::spawn(server.clone().deliver(events, profile.wake_socket()));
+    let briefer = Briefer::new(profile.dir.clone());
+    tokio::spawn(server.clone().deliver(events, profile.wake_socket(), briefer));
     Ok(server)
 }
 
@@ -153,7 +155,15 @@ impl Server {
         }
     }
 
-    async fn deliver(self, mut events: Events, socket: std::path::PathBuf) {
+    /// Wakes the agent with the instructions and rules it follows, when this process owns the device.
+    async fn briefed_wake(&self, socket: &std::path::Path, briefer: &mut Briefer, mut wake: Wake) {
+        if let Ok(ctx) = self.backend.local() {
+            briefer.brief(&ctx.client, &mut wake).await;
+        }
+        self.wake(socket, wake).await;
+    }
+
+    async fn deliver(self, mut events: Events, socket: std::path::PathBuf, mut briefer: Briefer) {
         while let Some(event) = events.recv().await {
             match event {
                 ClientEvent::Message { message } if !message.own && !message.shared => {
@@ -169,13 +179,13 @@ impl Server {
                         Ok(ctx) => ctx.client.room(&message.room_id).await.ok().and_then(|room| room.title),
                         Err(_) => None,
                     };
-                    self.wake(&socket, Wake::message(&message, title)).await;
+                    self.briefed_wake(&socket, &mut briefer, Wake::message(&message, title)).await;
                 }
                 ClientEvent::JoinedRoom { room } => {
                     let detail = format!("You are now a member of room {}. Read it with read_messages.", room.room_id);
                     self.channel(detail.clone(), json!({ "room_id": room.room_id, "event": "joined" }));
                     self.hub.publish_room(&room.room_id, "joined", &detail);
-                    self.wake(&socket, Wake::joined(&room.room_id, room.title.clone())).await;
+                    self.briefed_wake(&socket, &mut briefer, Wake::joined(&room.room_id, room.title.clone())).await;
                 }
                 ClientEvent::JoinRequested { request } => {
                     let detail = format!(
