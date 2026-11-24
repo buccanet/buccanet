@@ -13,8 +13,18 @@ use crate::trust::{Proposed, check_commit, key_change, pin_new};
 
 #[derive(Debug, PartialEq)]
 pub enum Action {
-    Approve { room_id: String, request_id: String },
-    RefreshRoom { room_id: String },
+    Approve {
+        room_id: String,
+        request_id: String,
+    },
+    /// Commits the removal of a member who left, as the room admin.
+    Remove {
+        room_id: String,
+        device_id: String,
+    },
+    RefreshRoom {
+        room_id: String,
+    },
 }
 
 #[derive(Default)]
@@ -45,6 +55,8 @@ pub fn apply(inner: &mut Inner, event: InboxEvent) -> Outcome {
             on_member_joined(inner, &room_id, MemberInfo { device_id, name, kind, admin: false })
         }
         InboxBody::MemberRemoved { room_id, device_id } => on_member_removed(inner, &room_id, &device_id),
+        InboxBody::MemberLeaving { room_id, device_id } => on_member_leaving(inner, room_id, device_id),
+        InboxBody::Unknown => Outcome::default(),
     }
 }
 
@@ -241,6 +253,13 @@ fn on_member_joined(inner: &mut Inner, room_id: &str, member: MemberInfo) -> Out
     let Some(room) = inner.state.rooms.get_mut(room_id) else { return Outcome::default() };
     room.pending.retain(|pending| pending.device_id != member.device_id);
     reconcile(inner, room_id, &[member])
+}
+
+/// A member left: the room admin takes its leaf out of the group.
+fn on_member_leaving(inner: &mut Inner, room_id: String, device_id: String) -> Outcome {
+    let is_admin = inner.state.rooms.get(&room_id).is_some_and(|room| room.admin && room.member(&device_id).is_some());
+    let actions = if is_admin { vec![Action::Remove { room_id, device_id }] } else { Vec::new() };
+    Outcome { events: Vec::new(), actions }
 }
 
 fn on_member_removed(inner: &mut Inner, room_id: &str, device_id: &str) -> Outcome {

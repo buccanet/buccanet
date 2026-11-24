@@ -39,10 +39,14 @@ pub struct App {
     quit_armed: Option<Instant>,
     /// The highlighted row of the command menu.
     pub picked: usize,
+    /// A command that undoes something, asked once, and when: running it again soon confirms it.
+    pending_confirm: Option<(String, Instant)>,
 }
 
 /// How long a first Ctrl+C waits for the second one.
 const QUIT_WINDOW: Duration = Duration::from_secs(2);
+/// How long `/leave` or `/remove` waits to be run a second time.
+const CONFIRM_WINDOW: Duration = Duration::from_secs(5);
 
 fn local_agents() -> HashMap<String, String> {
     profile::list().into_iter().filter_map(|name| profile::read_config(&name).ok().map(|config| (config.device_id, name))).collect()
@@ -68,6 +72,7 @@ impl App {
             scroll_limit: Cell::new(0),
             quit_armed: None,
             picked: 0,
+            pending_confirm: None,
         };
         app.reload().await;
         app
@@ -117,6 +122,15 @@ impl App {
         }
         self.quit_armed = Some(Instant::now());
         self.status = "Press Ctrl+C again to quit.".into();
+    }
+
+    /// True when `action` was asked within the confirmation window; otherwise remembers it.
+    pub fn confirmed(&mut self, action: String) -> bool {
+        let again = self.pending_confirm.take().is_some_and(|(asked, at)| asked == action && at.elapsed() < CONFIRM_WINDOW);
+        if !again {
+            self.pending_confirm = Some((action, Instant::now()));
+        }
+        again
     }
 
     /// The command menu for what is typed; empty when the menu is closed.

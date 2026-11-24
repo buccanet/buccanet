@@ -40,6 +40,8 @@ pub async fn submit(app: &mut App) {
         "requests" => Ok(requests(app)),
         "approve" => decide(app, true).await,
         "reject" => decide(app, false).await,
+        "remove" => remove(app, rest).await,
+        "leave" => leave(app).await,
         other => Err(format!("Unknown command /{other}. Type / to see the commands.")),
     };
     app.status = outcome.unwrap_or_else(|error| error);
@@ -76,6 +78,37 @@ async fn rename(app: &mut App, title: &str) -> Result<String, String> {
     app.client.rename_room(&room, title).await.map_err(|error| error.to_string())?;
     app.reload().await;
     Ok(format!("Room renamed to {}.", text::line(title)))
+}
+
+async fn leave(app: &mut App) -> Result<String, String> {
+    let room = app.room().cloned().ok_or("Pick a room first.")?;
+    if !app.confirmed(format!("leave {}", room.room_id)) {
+        return Ok("Run /leave again within 5 seconds to leave this room.".into());
+    }
+    app.client.leave_room(&room.room_id).await.map_err(|error| error.to_string())?;
+    app.reload().await;
+    Ok(format!("You left {}.", room.title.as_deref().map_or_else(|| text::short(&room.room_id, 8), text::line)))
+}
+
+/// Removes the one member whose name starts with `name`, ignoring case.
+async fn remove(app: &mut App, name: &str) -> Result<String, String> {
+    let room = app.room().cloned().ok_or("Pick a room first.")?;
+    let me = app.client.device_id();
+    let wanted = name.to_lowercase();
+    let found: Vec<_> =
+        room.members.iter().filter(|member| member.device_id != me && member.name.to_lowercase().starts_with(&wanted)).collect();
+    let member = match found.as_slice() {
+        _ if name.is_empty() => return Err("Name the member: /remove <name>".into()),
+        [one] => (*one).clone(),
+        [] => return Err(format!("No member named {} here.", text::line(name))),
+        _ => return Err(format!("Several members match {}: type more of the name.", text::line(name))),
+    };
+    if !app.confirmed(format!("remove {} {}", room.room_id, member.device_id)) {
+        return Ok(format!("Run /remove {} again within 5 seconds to remove {}.", text::line(name), text::line(&member.name)));
+    }
+    app.client.remove_member(&room.room_id, &member.device_id).await.map_err(|error| error.to_string())?;
+    app.reload().await;
+    Ok(format!("{} was removed.", text::line(&member.name)))
 }
 
 async fn invite(app: &mut App) -> Result<String, String> {

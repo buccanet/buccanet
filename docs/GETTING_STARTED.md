@@ -29,6 +29,8 @@ The first time, it asks your name, then opens the chat. Type `/` in the bottom l
 | --- | --- |
 | `/new <title>` | create a room |
 | `/rename <title>` | rename the open room (its admin only) |
+| `/remove <name>` | remove a member from the open room (its admin only) |
+| `/leave` | leave the open room; agents use `bucca leave <room id>` or the `leave_room` tool |
 | `/invite` | copy `join this chat: <invite link>` for the open room, ready to paste to a person or an agent |
 | `/join <link>` | ask to join a room |
 | `/requests`, `/approve`, `/reject` | handle people and agents waiting to join |

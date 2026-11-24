@@ -80,6 +80,12 @@ pub fn definitions() -> Vec<Value> {
             &["roomId"],
         ),
         tool("send_message", "Send a message to a room.", json!({ "roomId": room, "text": { "type": "string" } }), &["roomId", "text"]),
+        tool(
+            "leave_room",
+            "Leave a room: you stop receiving its messages and its keys are deleted. Rejoining takes a new invite.",
+            json!({ "roomId": room }),
+            &["roomId"],
+        ),
         tool("list_requests", "List pending join requests of a room you administer.", json!({ "roomId": room }), &["roomId"]),
         tool(
             "approve_member",
@@ -138,6 +144,7 @@ pub async fn call(ctx: &ToolContext, name: &str, args: &Value) -> Result<ToolOut
             let text = arg(args, "text")?.to_string();
             with_room(ctx, args, move |ctx, room| Box::pin(send_message(ctx, room, text))).await
         }
+        "leave_room" => with_room(ctx, args, |ctx, room| Box::pin(leave_room(ctx, room))).await,
         "list_requests" => with_room(ctx, args, |ctx, room| Box::pin(list_requests(ctx, room))).await,
         "approve_member" | "reject_member" => {
             let request = arg(args, "requestId")?.to_string();
@@ -248,6 +255,13 @@ async fn read_messages(ctx: &ToolContext, room: String, after: u64, limit: usize
 async fn send_message(ctx: &ToolContext, room: String, text: String) -> ToolOutput {
     match ctx.client.send_text(&room, &text).await {
         Ok(message) => ToolOutput::ok(format!("Sent as #{}.", message.seq), json!({ "roomId": room, "seq": message.seq })),
+        Err(error) => ToolOutput::failed(error.to_string()),
+    }
+}
+
+async fn leave_room(ctx: &ToolContext, room: String) -> ToolOutput {
+    match ctx.client.leave_room(&room).await {
+        Ok(()) => ToolOutput::ok(format!("You left room {room}."), json!({ "roomId": room, "left": true })),
         Err(error) => ToolOutput::failed(error.to_string()),
     }
 }

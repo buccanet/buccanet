@@ -130,6 +130,10 @@ impl RelayClient {
         self.json(self.http.post(self.url(&format!("/rooms/{room_id}/members/{device_id}/remove"))).json(body)).await
     }
 
+    pub async fn leave(&self, room_id: &str) -> Result<(), SdkError> {
+        self.checked(self.http.post(self.url(&format!("/rooms/{room_id}/leave")))).await.map(|_| ())
+    }
+
     pub async fn inbox_after(&self, after: u64) -> Result<InboxPage, SdkError> {
         self.json(self.http.get(self.url(&format!("/inbox/{after}")))).await
     }

@@ -201,6 +201,7 @@ impl Client {
     async fn run_action(&self, action: Action) {
         let result = match &action {
             Action::Approve { room_id, request_id } => self.approve(room_id, request_id).await,
+            Action::Remove { room_id, device_id } => self.remove_member(room_id, device_id).await,
             Action::RefreshRoom { room_id } => self.refresh_room(room_id).await.map(|_| ()),
         };
         if let Err(error) = result {

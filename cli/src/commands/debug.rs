@@ -177,6 +177,17 @@ pub async fn send(name: &str, room: &str, text: &str) -> CommandResult {
     Ok(())
 }
 
+pub async fn leave(name: &str, room: &str) -> CommandResult {
+    match access(name).await? {
+        Access::Direct(client) => client.leave_room(&resolve_room(&client, room).await?).await?,
+        Access::Owner(owner) => {
+            through_owner(&owner, "leave_room", json!({ "roomId": room })).await?;
+        }
+    }
+    println!("You left the room.");
+    Ok(())
+}
+
 /// Every message a profile keeps for a room.
 const READ_LIMIT: u64 = 1000;
 

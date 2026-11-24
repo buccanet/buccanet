@@ -71,6 +71,7 @@ Base path `/api/v1`. JSON bodies, binary fields as unpadded URL safe base64, bea
 | `POST /rooms/:roomId/requests/:requestId/reject` | | 204, admins |
 | `POST /rooms/:roomId/messages` | `clientMessageId, mlsMessage` | `seq, epoch` |
 | `POST /rooms/:roomId/members/:deviceId/remove` | `commit` | `seq, epoch`, admins |
+| `POST /rooms/:roomId/leave` | | 204, members other than the admin |
 | `GET /inbox/:after` | | up to 200 inbox events after the cursor |
 | `GET /stream` | header `Last-Event-ID` | Server Sent Events, `id` is the cursor |
 
@@ -110,6 +111,11 @@ Behind a reverse proxy, `CLIENT_IP_HEADER` names the header that carries the cli
 | `join.rejected` | `roomId, requestId` (requester) |
 | `member.joined` | `roomId, deviceId, name, kind` |
 | `member.removed` | `roomId, deviceId` |
+| `member.leaving` | `roomId, deviceId` (admins): a member left and waits for its Remove commit |
+
+A client skips event types it does not know, so a relay can add new ones.
+
+A member leaves with `POST /rooms/:roomId/leave` and deletes the room's keys on its side at once. The relay tells the admins, and the first admin device to read `member.leaving` commits the Remove through the remove route, after which the other members see `member.removed`.
 
 A device processes events in cursor order and stores the last cursor it applied. The relay writes a device's cursors while holding that device's lock, so a reader never sees `n + 1` before `n`.
 

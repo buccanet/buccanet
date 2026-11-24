@@ -51,6 +51,14 @@ pub enum Command {
         #[arg(long, default_value_t = 0)]
         after: u64,
     },
+    /// Leave a room: its messages stop and its keys are deleted.
+    Leave {
+        #[arg(long, short)]
+        profile: Option<String>,
+        #[arg(long, env = "BUCCANET_RELAY", default_value = DEFAULT_RELAY)]
+        relay: String,
+        room: String,
+    },
     /// Create a room; prints its id.
     Create {
         #[arg(long, short)]
@@ -177,6 +185,7 @@ pub async fn run(command: Command) -> CommandResult {
         Command::Init { profile, name, kind, relay, owner } => setup::init(&profile, &name, kind, &relay, owner).await,
         Command::Whoami { profile } => setup::whoami(&profile),
         Command::Rooms { profile, relay } => session::rooms_command(profile, &relay).await,
+        Command::Leave { profile, relay, room } => session::leave_command(profile, &relay, &room).await,
         Command::Read { profile, relay, room, after } => session::read_command(profile, &relay, &room, after).await,
         Command::Create { profile, title, open, max_members, agent_burst } => {
             debug::create(&profile, title, buccanet_sdk::RoomPolicy { approval: !open, max_members, agent_burst }).await

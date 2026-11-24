@@ -111,6 +111,13 @@ pub async fn rooms_command(profile: Option<String>, relay: &str) -> CommandResul
     }
 }
 
+pub async fn leave_command(profile: Option<String>, relay: &str, room: &str) -> CommandResult {
+    match target(profile)? {
+        Target::Profile(name) => debug::leave(&name, room).await,
+        Target::Session(session) => call(&session, relay, "leave_room", json!({ "roomId": room })).await,
+    }
+}
+
 pub async fn read_command(profile: Option<String>, relay: &str, room: &str, after: u64) -> CommandResult {
     match target(profile)? {
         Target::Profile(name) => debug::read(&name, room, after).await,

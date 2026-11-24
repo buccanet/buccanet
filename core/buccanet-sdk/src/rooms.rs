@@ -56,6 +56,22 @@ impl Client {
         Ok(info)
     }
 
+    /// Leaves a room: the relay stops counting this device in, the room admin removes it from the
+    /// group, and this device forgets the room and its keys at once. The admin cannot leave.
+    pub async fn leave_room(&self, room_id: &str) -> Result<(), SdkError> {
+        if self.inner.lock().await.room(room_id)?.admin {
+            return Err(SdkError::Invalid("you created this room, so you cannot leave it".into()));
+        }
+        self.relay.leave(room_id).await?;
+        let mut inner = self.inner.lock().await;
+        let room = inner.state.rooms.remove(room_id).ok_or_else(|| SdkError::UnknownRoom(room_id.into()))?;
+        inner.mls.delete_group(&room.group_id)?;
+        self.persist(&inner);
+        drop(inner);
+        self.host.on_event(ClientEvent::LeftRoom { room_id: room_id.into() });
+        Ok(())
+    }
+
     /// Renames a room this device administers. Members take a title from the room admin only.
     pub async fn rename_room(&self, room_id: &str, title: &str) -> Result<RoomInfo, SdkError> {
         let title = title.trim().to_string();

@@ -59,4 +59,10 @@ pub enum InboxBody {
     MemberJoined { room_id: String, device_id: String, name: String, kind: DeviceKind },
     #[serde(rename = "member.removed", rename_all = "camelCase")]
     MemberRemoved { room_id: String, device_id: String },
+    /// To the room admins: a member left, and its leaf waits for their Remove commit.
+    #[serde(rename = "member.leaving", rename_all = "camelCase")]
+    MemberLeaving { room_id: String, device_id: String },
+    /// An event type this version does not know; clients skip it.
+    #[serde(other)]
+    Unknown,
 }

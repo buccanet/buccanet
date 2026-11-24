@@ -116,6 +116,10 @@ impl BuccanetClient {
         Ok(self.client.reject(&room_id, &request_id).await?)
     }
 
+    pub async fn leave_room(&self, room_id: String) -> Result<(), BuccanetError> {
+        Ok(self.client.leave_room(&room_id).await?)
+    }
+
     pub async fn remove_member(&self, room_id: String, device_id: String) -> Result<(), BuccanetError> {
         Ok(self.client.remove_member(&room_id, &device_id).await?)
     }

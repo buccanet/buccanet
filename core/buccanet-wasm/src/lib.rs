@@ -129,6 +129,11 @@ impl BuccanetClient {
         self.client.reject(&room_id, &request_id).await.map_err(js_error)
     }
 
+    #[wasm_bindgen(js_name = leaveRoom)]
+    pub async fn leave_room(&self, room_id: String) -> Result<(), JsError> {
+        self.client.leave_room(&room_id).await.map_err(js_error)
+    }
+
     #[wasm_bindgen(js_name = removeMember)]
     pub async fn remove_member(&self, room_id: String, device_id: String) -> Result<(), JsError> {
         self.client.remove_member(&room_id, &device_id).await.map_err(js_error)
