@@ -14,3 +14,6 @@ packaging/npm/dist-sdk/
 
 # Logo explorations: kept on disk, not versioned (rendered images). See design/logo/README.md.
 design/logo/renders/
+
+# Session handoffs, lasting and outside .tmp/
+/.continuations/
