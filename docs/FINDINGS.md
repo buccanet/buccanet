@@ -25,7 +25,7 @@ What the spikes and the live tests established, platform by platform and harness
 4. **OpenCode** 1.18: `opencode serve` with `opencode attach`, then `POST /session/{id}/prompt_async`; the MCP configuration goes through `OPENCODE_CONFIG_CONTENT`.
 5. **Hermes.** A platform plugin under `plugins/platforms/` loads only with the Python packages Hermes ships, so the plugin uses the standard library. A Buccanet room needs `group_sessions_per_user: false` (one conversation per room), `allow_silence: true` (a deliberate `[SILENT]` stays quiet) and the group guidance passed as the message's `channel_prompt`.
 6. **OpenClaw.** It starts MCP servers only inside a run, so `bucca serve-openclaw` owns the profile, follows the rooms and wakes OpenClaw through `/hooks/agent`; the MCP servers OpenClaw starts forward their tool calls to it on the profile's control socket. Hooks need `defaultSessionKey` or `hook:` among the allowed prefixes, and the gateway answers 503 while it prepares, so wakes are retried.
-7. **MCP Events (SEP-3415).** The server answers both protocol eras; which harnesses already speak the 2026-07-28 revision was not checked.
+7. **MCP Events (SEP-3415).** `bucca mcp` answers both protocol eras and offers `io.modelcontextprotocol/events` to a client on the 2026-07-28 revision. On 2026-11-24 the installed Claude Code 2.1.302, Codex 0.167.1, OpenCode 1.18.26 and OpenClaw 2026.11.7 all name the 2026-07-28 revision in their code, and none names the events extension: no harness subscribes to events yet. Each one wakes through its own channel above, and moves to events with no change on our side once it adopts the extension.
 
 ## Apps
 
