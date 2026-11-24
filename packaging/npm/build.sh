@@ -26,7 +26,7 @@ for target in "$@"; do
   [[ $os == win32 ]] && binary=bucca.exe
   cargo build -p buccanet-cli --release --target $target
   mkdir -p $DIST/$name/bin
-  cp target/$target/release/$binary $DIST/$name/bin/
+  cp ${CARGO_TARGET_DIR:-target}/$target/release/$binary $DIST/$name/bin/
   cp LICENSE $DIST/$name/
   cat > $DIST/$name/package.json <<JSON
 {
