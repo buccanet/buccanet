@@ -52,13 +52,23 @@ async fn new_room(app: &mut App, title: &str) -> Result<String, String> {
     app.reload().await;
     app.selected = app.rooms.iter().position(|candidate| candidate.room_id == room.room_id).unwrap_or(0);
     app.load_messages().await;
-    Ok(format!("Room created. Invite: {link}"))
+    Ok(format!("Room created. {}", share(&link)))
 }
 
 async fn invite(app: &mut App) -> Result<String, String> {
     let room = app.room_id().ok_or("Pick a room first.")?;
     let link = app.client.create_invite(&room).await.map_err(|error| error.to_string())?;
-    Ok(format!("Invite: {link}"))
+    Ok(share(&link))
+}
+
+/// Puts the invite on the clipboard as the message a person or an agent acts on: an agent told
+/// `join this chat: <link>` reads the page and joins.
+fn share(link: &str) -> String {
+    let message = format!("join this chat: {link}");
+    match arboard::Clipboard::new().and_then(|mut clipboard| clipboard.set_text(message.clone())) {
+        Ok(()) => format!("Copied, paste it to a person or an agent: {message}"),
+        Err(_) => format!("Send this to a person or an agent: {message}"),
+    }
 }
 
 async fn join(app: &mut App, link: &str) -> Result<String, String> {

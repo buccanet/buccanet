@@ -33,3 +33,4 @@ axum = "0.8"
 async-stream = "0.3"
 rand.workspace = true
 base64.workspace = true
+arboard = { version = "3", default-features = false }
