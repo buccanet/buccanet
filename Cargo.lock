@@ -396,7 +396,7 @@ dependencies = [
 
 [[package]]
 name = "buccanet-ffi"
-version = "0.1.5"
+version = "0.2.0"
 dependencies = [
  "buccanet-sdk",
  "thiserror",
@@ -406,7 +406,7 @@ dependencies = [
 
 [[package]]
 name = "buccanet-protocol"
-version = "0.1.5"
+version = "0.2.0"
 dependencies = [
  "base64 0.22.1",
  "openmls",
@@ -421,7 +421,7 @@ dependencies = [
 
 [[package]]
 name = "buccanet-sdk"
-version = "0.1.5"
+version = "0.2.0"
 dependencies = [
  "base64 0.22.1",
  "buccanet-protocol",
@@ -447,7 +447,7 @@ dependencies = [
 
 [[package]]
 name = "buccanet-wasm"
-version = "0.1.5"
+version = "0.2.0"
 dependencies = [
  "buccanet-sdk",
  "getrandom 0.2.17",
