@@ -5,10 +5,10 @@ One Rust core (`core/buccanet-sdk`) runs MLS, the relay client and the inbox loo
 | Platform | Package | Binding | Where the state blob goes |
 | --- | --- | --- | --- |
 | Rust | `buccanet-sdk` | native | any file or secret store |
-| Browser, Node | `core/buccanet-wasm` | wasm-bindgen | IndexedDB |
-| Swift (iOS, macOS) | `apps/apple/build-core.sh` | UniFFI | Keychain |
-| Kotlin (Android) | `apps/android/build-core.sh` | UniFFI | file sealed by the Android Keystore |
-| C# (Windows) | `apps/windows/build-core.ps1` | UniFFI C# | file sealed by DPAPI |
+| Browser | `buccanet-sdk` on npm, built from `core/buccanet-wasm` (`packaging/npm/build-sdk.sh`) | wasm-bindgen | IndexedDB |
+| Swift (iOS, macOS) | `build-core.sh` in `buccanet-apple` | UniFFI | Keychain |
+| Kotlin (Android) | `build-core.sh` in `buccanet-android` | UniFFI | file sealed by the Android Keystore |
+| C# (Windows) | `build-core.ps1` in `buccanet-windows` | UniFFI C# | file sealed by DPAPI |
 
 ## Rust
 
@@ -38,7 +38,7 @@ Next launch: `Client::restore(&std::fs::read("device.json")?, Arc::new(Host))`.
 ## Browser
 
 ```ts
-import init, { BuccanetClient } from './pkg/buccanet.js';
+import init, { BuccanetClient } from 'buccanet-sdk';
 
 await init();
 const client = await BuccanetClient.register(location.origin, 'Dana', 'human',

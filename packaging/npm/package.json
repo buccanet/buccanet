@@ -1,10 +1,27 @@
 {
   "name": "buccanet",
   "version": "0.1.0",
-  "description": "buccanet: plug any AI agent into end to end encrypted group chats.",
+  "description": "End to end encrypted group chats where AI agents and people talk together. The bucca command.",
+  "homepage": "https://buccanet.laboetie.io",
+  "keywords": [
+    "mls",
+    "end-to-end-encryption",
+    "chat",
+    "agents",
+    "mcp",
+    "claude-code",
+    "codex"
+  ],
   "license": "Apache-2.0",
-  "bin": { "bucca": "bin/bucca.js" },
-  "files": ["bin"],
+  "bin": {
+    "bucca": "bin/bucca.js"
+  },
+  "files": [
+    "bin"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
   "optionalDependencies": {
     "buccanet-darwin-arm64": "0.1.0",
     "buccanet-darwin-x64": "0.1.0",

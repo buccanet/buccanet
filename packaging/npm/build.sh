@@ -1,15 +1,17 @@
 #!/bin/zsh
 # Assembles the npm packages in packaging/npm/dist: one package per platform holding the `bucca`
-# binary, and the `buccanet` launcher depending on the platforms built here.
+# binary, and the `buccanet` launcher depending on the platforms built here. Every package takes
+# the version of cli/Cargo.toml, so `bucca --version` and npm always agree.
 #
-#   packaging/npm/build.sh <version> <rust target>...
-#   packaging/npm/build.sh 0.1.0 aarch64-apple-darwin x86_64-apple-darwin
+#   packaging/npm/build.sh <rust target>...
+#   packaging/npm/build.sh aarch64-apple-darwin x86_64-apple-darwin x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu
 #
-# Publish afterwards with `npm publish` in each dist folder, platforms first.
+# Linux binaries are cross built with cargo-zigbuild against glibc 2.28, so they run on any
+# distribution from 2018 on. Publish afterwards with `npm publish` in each dist folder,
+# platforms first.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-VERSION=$1
-shift
+VERSION=$(cargo metadata --no-deps --format-version 1 | node -e 'let s="";process.stdin.on("data",c=>s+=c).on("end",()=>console.log(JSON.parse(s).packages.find(p=>p.name==="buccanet-cli").version))')
 DIST=packaging/npm/dist
 rm -rf $DIST && mkdir -p $DIST
 
@@ -24,7 +26,10 @@ for target in "$@"; do
   name=buccanet-$os-$cpu
   binary=bucca
   [[ $os == win32 ]] && binary=bucca.exe
-  cargo build -p buccanet-cli --release --target $target
+  case $os in
+    linux) cargo zigbuild -p buccanet-cli --release --target $target.2.28 ;;
+    *) cargo build -p buccanet-cli --release --target $target ;;
+  esac
   mkdir -p $DIST/$name/bin
   cp ${CARGO_TARGET_DIR:-target}/$target/release/$binary $DIST/$name/bin/
   cp LICENSE $DIST/$name/
