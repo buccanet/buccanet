@@ -10,9 +10,7 @@ pub const HELP: &str = "Type / for commands · Tab: rooms · ↑↓ pick a room 
 /// Enter on the command menu: a command that needs nothing runs, one that needs an argument
 /// waits for it.
 pub async fn accept(app: &mut App) {
-    if let Some(command) = app.complete()
-        && command.args.is_empty()
-    {
+    if app.complete() == Some(true) {
         submit(app).await;
     }
 }
@@ -83,28 +81,31 @@ async fn rename(app: &mut App, title: &str) -> Result<String, String> {
 async fn leave(app: &mut App) -> Result<String, String> {
     let room = app.room().cloned().ok_or("Pick a room first.")?;
     if !app.confirmed(format!("leave {}", room.room_id)) {
-        return Ok("Run /leave again within 5 seconds to leave this room.".into());
+        app.input = "/leave".into();
+        return Ok("Press Enter again within 5 seconds to leave this room.".into());
     }
     app.client.leave_room(&room.room_id).await.map_err(|error| error.to_string())?;
     app.reload().await;
     Ok(format!("You left {}.", room.title.as_deref().map_or_else(|| text::short(&room.room_id, 8), text::line)))
 }
 
-/// Removes the one member whose name starts with `name`, ignoring case.
-async fn remove(app: &mut App, name: &str) -> Result<String, String> {
+/// Removes the member picked in the menu (its device id), or the one whose name holds `wanted`.
+async fn remove(app: &mut App, wanted: &str) -> Result<String, String> {
     let room = app.room().cloned().ok_or("Pick a room first.")?;
     let me = app.client.device_id();
-    let wanted = name.to_lowercase();
-    let found: Vec<_> =
-        room.members.iter().filter(|member| member.device_id != me && member.name.to_lowercase().starts_with(&wanted)).collect();
-    let member = match found.as_slice() {
-        _ if name.is_empty() => return Err("Name the member: /remove <name>".into()),
-        [one] => (*one).clone(),
-        [] => return Err(format!("No member named {} here.", text::line(name))),
-        _ => return Err(format!("Several members match {}: type more of the name.", text::line(name))),
+    let lowered = wanted.to_lowercase();
+    let others: Vec<_> = room.members.iter().filter(|member| member.device_id != me).collect();
+    let by_id = others.iter().copied().find(|member| member.device_id == wanted);
+    let by_name: Vec<_> = others.iter().copied().filter(|member| member.name.to_lowercase().contains(&lowered)).collect();
+    let member = match (by_id, by_name.as_slice()) {
+        _ if wanted.is_empty() => return Err("Pick the member in the list: /remove <name>".into()),
+        (Some(member), _) | (None, &[member]) => member.clone(),
+        (None, []) => return Err(format!("No member named {} here.", text::line(wanted))),
+        (None, _) => return Err(format!("Several members match {}: pick one in the list.", text::line(wanted))),
     };
     if !app.confirmed(format!("remove {} {}", room.room_id, member.device_id)) {
-        return Ok(format!("Run /remove {} again within 5 seconds to remove {}.", text::line(name), text::line(&member.name)));
+        app.input = format!("/remove {}", member.device_id);
+        return Ok(format!("Press Enter again within 5 seconds to remove {}.", text::line(&member.name)));
     }
     app.client.remove_member(&room.room_id, &member.device_id).await.map_err(|error| error.to_string())?;
     app.reload().await;

@@ -167,7 +167,9 @@ async fn join(session: &ClaudeSession, relay: &str, link: &str) -> CommandResult
     println!(
         "New messages from the room will arrive in this conversation. Answer with a quoted heredoc, which the shell passes on untouched:"
     );
-    println!("{} send <room id> <<'EOF'\n<your message>\nEOF", crate::update::command());
+    let bucca = crate::update::command();
+    println!("{bucca} send <room id> <<'EOF'\n<your message>\nEOF");
+    println!("To stop receiving a room's messages: {bucca} leave <room id>");
     Ok(())
 }
 

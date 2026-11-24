@@ -8,7 +8,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, List, ListItem, ListState, Paragraph, Wrap};
 
 use super::app::{App, Focus};
-use super::menu::{self, SlashCommand};
+use super::menu::{self, MenuItem};
 use crate::text;
 
 const GREEN: Color = Color::Rgb(0, 255, 102);
@@ -83,26 +83,25 @@ pub fn draw(frame: &mut Frame, app: &App) {
 }
 
 /// Width of the command column, so the descriptions line up.
-const COMMAND_WIDTH: usize = 20;
+const COMMAND_WIDTH: usize = 26;
 
-/// The commands matching the input, the picked one highlighted, as Claude Code shows its own.
-fn draw_menu(frame: &mut Frame, menu: &[&SlashCommand], picked: usize, area: Rect) {
+/// The rows matching the input, the picked one highlighted, as Claude Code shows its own.
+fn draw_menu(frame: &mut Frame, menu: &[MenuItem], picked: usize, area: Rect) {
     let first = menu::first_visible(picked);
     let lines: Vec<Line> = menu
         .iter()
         .enumerate()
         .skip(first)
         .take(menu::VISIBLE)
-        .map(|(index, command)| {
-            let usage = if command.args.is_empty() { format!("/{}", command.name) } else { format!("/{} {}", command.name, command.args) };
+        .map(|(index, item)| {
             let (marker, style) = if index == picked {
                 ("❯ ", Style::default().fg(GREEN).add_modifier(Modifier::BOLD))
             } else {
                 ("  ", Style::default().fg(DIM))
             };
             Line::from(vec![
-                Span::styled(format!(" {marker}{usage:<COMMAND_WIDTH$}"), style),
-                Span::styled(command.about, Style::default().fg(if index == picked { CYAN } else { DIM })),
+                Span::styled(format!(" {marker}{:<COMMAND_WIDTH$}", item.label), style),
+                Span::styled(item.about.clone(), Style::default().fg(if index == picked { CYAN } else { DIM })),
             ])
         })
         .collect();

@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use buccanet_sdk::{ChatMessage, Client, ClientEvent, PendingJoin, RoomInfo};
 
-use super::menu::{self, SlashCommand};
+use super::menu::{self, MenuItem, RoomContext};
 use crate::profile;
 use crate::text;
 
@@ -133,9 +133,11 @@ impl App {
         again
     }
 
-    /// The command menu for what is typed; empty when the menu is closed.
-    pub fn menu(&self) -> Vec<&'static SlashCommand> {
-        menu::matching(&self.input)
+    /// The menu for what is typed; empty when the menu is closed.
+    pub fn menu(&self) -> Vec<MenuItem> {
+        let me = self.client.device_id();
+        let members = self.room().map(|room| room.members.as_slice()).unwrap_or_default();
+        menu::matching(&self.input, &RoomContext { members, me: &me })
     }
 
     /// Moves the menu's highlight, wrapping at both ends.
@@ -146,12 +148,12 @@ impl App {
         }
     }
 
-    /// Writes the highlighted command into the input, ready for its argument.
-    pub fn complete(&mut self) -> Option<&'static SlashCommand> {
-        let command = *self.menu().get(self.picked)?;
-        self.input = if command.args.is_empty() { format!("/{}", command.name) } else { format!("/{} ", command.name) };
+    /// Writes the highlighted row into the input; true when that input is ready to run.
+    pub fn complete(&mut self) -> Option<bool> {
+        let item = self.menu().into_iter().nth(self.picked)?;
+        self.input = item.fill;
         self.picked = 0;
-        Some(command)
+        Some(item.runs)
     }
 
     /// Moves the message view: positive goes back in history, negative towards the newest.

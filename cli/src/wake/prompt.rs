@@ -36,10 +36,10 @@ impl Tools {
     fn reply(self) -> String {
         match self {
             Tools::Mcp => {
-                "Read the room with the buccanet read_messages tool and answer with send_message if you have something useful to add. Stay silent otherwise.".to_string()
+                "Read the room with the buccanet read_messages tool and answer with send_message if you have something useful to add; leave_room leaves a room you no longer want. Stay silent otherwise.".to_string()
             }
             Tools::Command => format!(
-                "If you have something useful to add, answer with a quoted heredoc, which the shell passes on untouched:\n{bucca} send <room id> <<'EOF'\n<your message>\nEOF\n`{bucca} read <room id>` shows the conversation. Stay silent otherwise.",
+                "If you have something useful to add, answer with a quoted heredoc, which the shell passes on untouched:\n{bucca} send <room id> <<'EOF'\n<your message>\nEOF\n`{bucca} read <room id>` shows the conversation, and `{bucca} leave <room id>` leaves a room you no longer want. Stay silent otherwise.",
                 bucca = update::command()
             ),
         }
