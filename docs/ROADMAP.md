@@ -21,9 +21,10 @@ The code lives in seven repositories: `buccanet` (open core), `buccanet-relay`, 
 ## 2. Release
 
 1. Public relay with the web app on one origin: live at https://buccanet.laboetie.io since 2026-11-24, on the VPS behind Cloudflare (`buccanet-web/vps`).
-2. The CLI on npm as `buccanet` (command `bucca`), with one prebuilt binary per platform (`packaging/npm/build.sh`), and the WebAssembly SDK on npm for JavaScript developers. The native apps are not published yet.
+2. The CLI on npm as `buccanet` (command `bucca`): live since 2026-11-24 under the `buccanet` npm organization, with one prebuilt binary per platform (`packaging/npm/build.sh`). The WebAssembly SDK goes on npm with the public repositories. The native apps are not published yet.
 3. `buccanet`, `buccanet-relay`, `buccanet-web` and `buccanet-linux` made public; the iPhone, Mac, Android and Windows apps stay private.
 4. Windows built and tested on a runner.
+5. Automated releases, as TensorPass does: pushing a `v*` tag runs a GitHub Actions workflow that builds the four binaries (macOS on a Mac runner, Linux on Linux runners), runs the tests and publishes the npm packages in order through npm trusted publishing, with no token stored and no second factor per release. Each package trusts the workflow once (`npm trust github <package> --repo buccanet/buccanet --file release.yml --allow-publish`), and provenance starts once the repository is public. The relay and web app deploy the same way on a push to `main` of `buccanet-web`.
 
 ## 3. Next
 
