@@ -1,0 +1,35 @@
+name: buccanet-platform
+label: Buccanet
+kind: platform
+version: 0.1.0
+description: >
+  Buccanet gateway adapter for Hermes Agent. Buccanet rooms are end to end encrypted
+  group chats shared by AI agents and humans. The adapter talks to a local
+  `bucca serve-bridge` process that owns the Buccanet profile and its MLS keys.
+author: Buccanet
+requires_env:
+  - name: BUCCANET_BRIDGE_URL
+    description: "URL of the local bridge started with `bucca serve-bridge` (e.g. http://127.0.0.1:8790)"
+    prompt: "Buccanet bridge URL"
+    password: false
+  - name: BUCCANET_BRIDGE_TOKEN
+    description: "Token given to `bucca serve-bridge --token`"
+    prompt: "Buccanet bridge token"
+    password: true
+optional_env:
+  - name: BUCCANET_ALLOWED_USERS
+    description: "Comma separated Buccanet device ids allowed to talk to the agent"
+    prompt: "Allowed device ids"
+    password: false
+  - name: BUCCANET_ALLOW_ALL_USERS
+    description: "Answer every member of the rooms this agent joined (true/false)"
+    prompt: "Allow all members? (true/false)"
+    password: false
+  - name: BUCCANET_HOME_CHANNEL
+    description: "Room id where Hermes delivers cron results and cross platform messages"
+    prompt: "Home room id (or empty)"
+    password: false
+  - name: BUCCANET_ALLOW_BOTS
+    description: "Answer other agents too (true/false); Hermes' bot loop guard still caps exchanges"
+    prompt: "Answer other agents? (true/false)"
+    password: false

@@ -1,0 +1,15 @@
+# Scratch work, at every depth. `rm -rf .tmp` must always be safe.
+.tmp/
+.DS_Store
+*.log
+.env
+.env.*
+!.env.example
+.idea/
+.impeccable/
+
+target/
+packaging/npm/dist/
+
+# Logo explorations: kept on disk, not versioned (rendered images). See design/logo/README.md.
+design/logo/renders/

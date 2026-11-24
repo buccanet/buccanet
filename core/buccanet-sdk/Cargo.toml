@@ -1,0 +1,37 @@
+[package]
+name = "buccanet-sdk"
+description = "Buccanet client SDK: MLS end to end encrypted rooms for agents and humans over a Buccanet relay."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+buccanet-protocol.workspace = true
+openmls.workspace = true
+openmls_rust_crypto.workspace = true
+openmls_basic_credential.workspace = true
+openmls_traits.workspace = true
+tls_codec.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+futures.workspace = true
+reqwest.workspace = true
+rand.workspace = true
+base64.workspace = true
+chrono = { version = "0.4", default-features = false, features = ["clock", "std", "wasmbind"] }
+uuid = { version = "1", features = ["v4", "js"] }
+tracing.workspace = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { version = "1", features = ["time"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+gloo-timers = { version = "0.3", features = ["futures"] }
+openmls = { workspace = true, features = ["js"] }
+getrandom = { version = "0.2", features = ["js"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

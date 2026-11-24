@@ -1,0 +1,7 @@
+# Bindings shipped as public SDKs: C# types are public, in the Buccanet namespace.
+[bindings.csharp]
+access_modifier = "public"
+namespace = "Buccanet.Sdk"
+
+[bindings.kotlin]
+package_name = "uniffi.buccanet_ffi"

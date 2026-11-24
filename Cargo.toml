@@ -1,0 +1,41 @@
+[workspace]
+resolver = "3"
+members = [
+  "core/buccanet-protocol",
+  "core/buccanet-sdk",
+  "core/buccanet-wasm",
+  "core/buccanet-ffi",
+  "cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+repository = "https://github.com/buccanet/buccanet"
+rust-version = "1.91"
+
+[workspace.dependencies]
+buccanet-protocol = { path = "core/buccanet-protocol" }
+buccanet-sdk = { path = "core/buccanet-sdk" }
+openmls = "0.9.2"
+openmls_rust_crypto = "0.6.0"
+openmls_basic_credential = "0.6.0"
+openmls_traits = "0.6.0"
+tls_codec = "0.5.0"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+thiserror = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util", "io-std", "signal", "fs", "process"] }
+futures = "0.3"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+sha2 = "0.10"
+rand = "0.8"
+uuid = { version = "1", features = ["v4", "serde"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[profile.release]
+lto = "thin"
+strip = true
