@@ -59,13 +59,19 @@ pub struct RoomState {
     pub messages: Vec<ChatMessage>,
     pub pending: Vec<PendingJoin>,
     pub history_imported: bool,
-    /// The room rules this device holds, from the room admin.
+    /// The room rules this device holds, from a room admin.
     #[serde(default)]
     pub rules: Option<RoomRules>,
-    /// The room admin as the MLS tree shows it: this device for a room it created, else the
-    /// member whose Welcome let this device in. Only its commits and history share count.
+    /// This device for a room it created, else the member whose Welcome let it in: the only
+    /// admin of a group without an admin list, and the only one whose history share counts.
     #[serde(default)]
     pub admin_id: String,
+    /// The room admins as the MLS group shows them. Only their commits, titles and rules count.
+    #[serde(default)]
+    pub admins: Vec<String>,
+    /// Messages this device has sealed in the room; the relay refuses a number it already saw.
+    #[serde(default)]
+    pub sealed: u64,
 }
 
 impl RoomState {
@@ -85,6 +91,16 @@ impl RoomState {
         self.members.iter().find(|member| member.device_id == device_id)
     }
 
+    pub fn is_admin(&self, device_id: &str) -> bool {
+        self.admins.iter().any(|admin| admin == device_id)
+    }
+
+    /// Takes the admin list the MLS group carries; a group without one has one admin.
+    pub fn adopt_admins(&mut self, listed: Option<Vec<String>>, me: &str) {
+        self.admins = listed.unwrap_or_else(|| vec![self.admin_id.clone()]);
+        self.admin = self.is_admin(me);
+    }
+
     /// Rebuilds the member list from the MLS tree. Names and kinds come from `directory` (what
     /// the relay reports) or the previous list; a leaf nobody reported shows as unverified.
     pub fn reconcile_members(&mut self, leaves: &[Leaf], directory: &[MemberInfo]) {
@@ -93,7 +109,7 @@ impl RoomState {
             .map(|leaf| {
                 let known = directory.iter().chain(&self.members).find(|member| member.device_id == leaf.device_id);
                 let mut member = known.cloned().unwrap_or_else(|| MemberInfo::unverified(&leaf.device_id));
-                member.admin = leaf.device_id == self.admin_id;
+                member.admin = self.is_admin(&leaf.device_id);
                 member
             })
             .collect();
@@ -183,6 +199,8 @@ mod tests {
             at: "2026-11-23T00:00:00Z".into(),
             own: false,
             shared: false,
+            mentions: vec![],
+            unreadable: false,
         }
     }
 
@@ -202,6 +220,8 @@ mod tests {
             history_imported: false,
             rules: None,
             admin_id: String::new(),
+            admins: Vec::new(),
+            sealed: 0,
         };
         for seq in [3, 1, 2, 3] {
             room.store_message(message(seq));

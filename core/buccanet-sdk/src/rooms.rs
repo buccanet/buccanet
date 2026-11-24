@@ -3,6 +3,7 @@
 use buccanet_protocol::api::{Approve, CreateRoom, InvitePreview, PendingRequest, RemoveMember, RoomPolicy, RoomView};
 use buccanet_protocol::envelope::Envelope;
 use rand::RngCore;
+use std::future::Future;
 
 use crate::client::{Client, JoinPending};
 use crate::error::SdkError;
@@ -46,6 +47,8 @@ impl Client {
                 history_imported: true,
                 rules: None,
                 admin_id: inner.state.identity.device_id.clone(),
+                admins: vec![inner.state.identity.device_id.clone()],
+                sealed: 0,
             };
             let info = room.info();
             inner.state.rooms.insert(view.room_id, room);
@@ -88,7 +91,7 @@ impl Client {
             let inner = self.inner.lock().await;
             let room = inner.room(room_id)?;
             if !room.admin {
-                return Err(SdkError::Invalid("only the room admin can change its rules".into()));
+                return Err(SdkError::Invalid("only a room admin can change its rules".into()));
             }
             rules::next(room.rules.as_ref(), text)
         };
@@ -104,11 +107,16 @@ impl Client {
         Ok(info)
     }
 
-    /// Leaves a room: the relay stops counting this device in, the room admin removes it from the
-    /// group, and this device forgets the room and its keys at once. The admin cannot leave.
+    /// Leaves a room: the relay stops counting this device in, a room admin removes it from the
+    /// group, and this device forgets the room and its keys at once. The last admin cannot leave.
     pub async fn leave_room(&self, room_id: &str) -> Result<(), SdkError> {
-        if self.inner.lock().await.room(room_id)?.admin {
-            return Err(SdkError::Invalid("you created this room, so you cannot leave it".into()));
+        let last_admin = {
+            let inner = self.inner.lock().await;
+            let room = inner.room(room_id)?;
+            room.admin && room.admins.len() == 1
+        };
+        if last_admin {
+            return Err(SdkError::Invalid("you are the only admin of this room: make another member admin before leaving".into()));
         }
         self.relay.leave(room_id).await?;
         let mut inner = self.inner.lock().await;
@@ -120,14 +128,14 @@ impl Client {
         Ok(())
     }
 
-    /// Renames a room this device administers. Members take a title from the room admin only.
+    /// Renames a room this device administers. Members take a title from a room admin only.
     pub async fn rename_room(&self, room_id: &str, title: &str) -> Result<RoomInfo, SdkError> {
         let title = title.trim().to_string();
         if title.is_empty() {
             return Err(SdkError::Invalid("a room needs a title".into()));
         }
         if !self.inner.lock().await.room(room_id)?.admin {
-            return Err(SdkError::Invalid("only the room admin can rename it".into()));
+            return Err(SdkError::Invalid("only a room admin can rename it".into()));
         }
         self.send_envelope(room_id, &Envelope::RoomMeta { title: title.clone() }).await?;
         let info = {
@@ -189,17 +197,26 @@ impl Client {
             .into_iter()
             .find(|request| request.request_id == request_id)
             .ok_or_else(|| SdkError::Invalid(format!("request {request_id} is not pending")))?;
+        self.retrying(|| self.commit_add(room_id, &request)).await?;
+        self.share_history(room_id).await
+    }
+
+    /// Runs a commit again, after a sync, while another admin moved the room to a newer epoch.
+    pub(crate) async fn retrying<F, Fut>(&self, mut commit: F) -> Result<(), SdkError>
+    where
+        F: FnMut() -> Fut,
+        Fut: Future<Output = Result<(), SdkError>>,
+    {
         let mut attempt = 1;
         loop {
-            match self.commit_add(room_id, &request).await {
+            match commit().await {
                 Err(error) if error.is_stale_epoch() && attempt < COMMIT_ATTEMPTS => {
                     attempt += 1;
                     self.sync().await?;
                 }
-                other => break other?,
+                other => return other,
             }
         }
-        self.share_history(room_id).await
     }
 
     /// Adds the requester's key package, which must carry the requester's device id and, for
@@ -251,22 +268,17 @@ impl Client {
     }
 
     pub async fn remove_member(&self, room_id: &str, device_id: &str) -> Result<(), SdkError> {
-        let mut attempt = 1;
-        loop {
-            match self.commit_remove(room_id, device_id).await {
-                Err(error) if error.is_stale_epoch() && attempt < COMMIT_ATTEMPTS => {
-                    attempt += 1;
-                    self.sync().await?;
-                }
-                other => return other,
-            }
-        }
+        self.retrying(|| self.commit_remove(room_id, device_id)).await
     }
 
+    /// Removes a member; an admin leaves the admin list in the same commit.
     async fn commit_remove(&self, room_id: &str, device_id: &str) -> Result<(), SdkError> {
         let mut inner = self.inner.lock().await;
-        let group_id = inner.room(room_id)?.group_id.clone();
-        let commit = inner.mls.remove_member(&group_id, device_id)?;
+        let room = inner.room(room_id)?;
+        let group_id = room.group_id.clone();
+        let admins: Option<Vec<String>> =
+            room.is_admin(device_id).then(|| room.admins.iter().filter(|admin| *admin != device_id).cloned().collect());
+        let commit = inner.mls.remove_member(&group_id, device_id, admins.as_deref())?;
         match self.relay.remove(room_id, device_id, &RemoveMember { commit }).await {
             Ok(accepted) => {
                 inner.mls.merge_pending(&group_id)?;

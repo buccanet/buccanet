@@ -128,6 +128,10 @@ impl BuccanetClient {
         Ok(self.client.leave_room(&room_id).await?)
     }
 
+    pub async fn set_admin(&self, room_id: String, device_id: String, admin: bool) -> Result<RoomInfo, BuccanetError> {
+        Ok(self.client.set_admin(&room_id, &device_id, admin).await?.into())
+    }
+
     pub async fn remove_member(&self, room_id: String, device_id: String) -> Result<(), BuccanetError> {
         Ok(self.client.remove_member(&room_id, &device_id).await?)
     }
@@ -141,4 +145,16 @@ impl BuccanetClient {
 #[uniffi::export]
 pub fn default_room_policy() -> RoomPolicy {
     sdk::RoomPolicy::default().into()
+}
+
+/// The text to share for a room invite: the link, and the command AI agents run.
+#[uniffi::export]
+pub fn invite_message(link: String) -> String {
+    sdk::invite_message(&link)
+}
+
+/// The terminal command an AI agent runs to join from an invite link.
+#[uniffi::export]
+pub fn agent_join_command(link: String) -> String {
+    sdk::agent_join_command(&link)
 }

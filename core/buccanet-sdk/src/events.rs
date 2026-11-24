@@ -31,7 +31,7 @@ pub struct RoomInfo {
     /// True when this device is an admin of the room.
     pub admin: bool,
     pub last_seq: u64,
-    /// What the room admin asks of every member.
+    /// What the room admins ask of every member.
     pub rules: Option<RoomRules>,
 }
 
@@ -49,6 +49,12 @@ pub struct ChatMessage {
     pub own: bool,
     /// Imported from a history share made by another member.
     pub shared: bool,
+    /// The members the text names with `@`, by device id.
+    #[serde(default)]
+    pub mentions: Vec<String>,
+    /// This device could not decrypt the message: `text` says so in place of its content.
+    #[serde(default)]
+    pub unreadable: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

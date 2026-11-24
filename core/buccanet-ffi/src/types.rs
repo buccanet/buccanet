@@ -77,6 +77,10 @@ pub struct ChatMessage {
     pub at: String,
     pub own: bool,
     pub shared: bool,
+    /// The members the text names with `@`, by device id.
+    pub mentions: Vec<String>,
+    /// This device could not decrypt the message: `text` says so in place of its content.
+    pub unreadable: bool,
 }
 
 #[derive(Debug, Clone, uniffi::Record)]
@@ -140,6 +144,8 @@ impl From<sdk::ChatMessage> for ChatMessage {
             at: m.at,
             own: m.own,
             shared: m.shared,
+            mentions: m.mentions,
+            unreadable: m.unreadable,
         }
     }
 }

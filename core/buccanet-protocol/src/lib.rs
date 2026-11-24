@@ -13,5 +13,9 @@ pub mod framing;
 /// The only MLS ciphersuite Buccanet v1 accepts.
 pub const CIPHERSUITE: openmls::prelude::Ciphersuite = openmls::prelude::Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519;
 
+/// MLS group context extension listing the room admins' device ids, as a JSON array. Groups
+/// without it have one admin: their creator.
+pub const ADMINS_EXTENSION: u16 = 0xF0AD;
+
 /// Path prefix of every relay route.
 pub const API_PREFIX: &str = "/api/v1";

@@ -6,6 +6,7 @@ use buccanet_protocol::envelope::Envelope;
 use crate::client::Client;
 use crate::error::SdkError;
 use crate::events::ChatMessage;
+use crate::mentions::mentioned;
 use crate::time::now_iso;
 
 const SEND_ATTEMPTS: usize = 3;
@@ -16,9 +17,12 @@ impl Client {
         if text.is_empty() {
             return Err(SdkError::Invalid("a message needs text".into()));
         }
-        let me = self.inner.lock().await.me();
+        let (me, mentions) = {
+            let inner = self.inner.lock().await;
+            (inner.me(), mentioned(text, &inner.room(room_id)?.members, &self.device_id()))
+        };
         let at = now_iso();
-        let envelope = Envelope::Text { author: me.clone(), text: text.to_string(), at: at.clone() };
+        let envelope = Envelope::Text { author: me.clone(), text: text.to_string(), at: at.clone(), mentions: mentions.clone() };
         let accepted = self.send_envelope(room_id, &envelope).await?;
         let message = ChatMessage {
             room_id: room_id.to_string(),
@@ -30,6 +34,8 @@ impl Client {
             at,
             own: true,
             shared: false,
+            mentions,
+            unreadable: false,
         };
         let mut inner = self.inner.lock().await;
         inner.room_mut(room_id)?.store_message(message.clone());
@@ -42,14 +48,16 @@ impl Client {
         let client_message_id = uuid::Uuid::new_v4().to_string();
         let mut attempt = 1;
         loop {
-            let mls_message = {
-                let inner = self.inner.lock().await;
-                let group_id = inner.room(room_id)?.group_id.clone();
+            let (mls_message, device_seq) = {
+                let mut inner = self.inner.lock().await;
+                let room = inner.room_mut(room_id)?;
+                room.sealed += 1;
+                let (group_id, device_seq) = (room.group_id.clone(), room.sealed);
                 let sealed = inner.mls.encrypt(&group_id, &plaintext)?;
                 self.persist(&inner);
-                sealed
+                (sealed, device_seq)
             };
-            let body = PostMessage { client_message_id: client_message_id.clone(), mls_message };
+            let body = PostMessage { client_message_id: client_message_id.clone(), mls_message, device_seq: Some(device_seq) };
             match self.relay.post_message(room_id, &body).await {
                 Err(error) if error.is_stale_epoch() && attempt < SEND_ATTEMPTS => {
                     attempt += 1;

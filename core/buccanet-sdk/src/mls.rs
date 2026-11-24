@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use buccanet_protocol::CIPHERSUITE;
+use buccanet_protocol::{ADMINS_EXTENSION, CIPHERSUITE};
 use openmls::prelude::tls_codec::{Deserialize as _, Serialize as _};
 use openmls::prelude::*;
 use openmls_basic_credential::SignatureKeyPair;
@@ -30,6 +30,9 @@ pub struct Leaf {
 pub struct ReviewedCommit {
     pub committer: String,
     pub added: Vec<Leaf>,
+    pub removed: Vec<String>,
+    /// The admin list the commit sets, when it changes the group's admin extension.
+    pub admins: Option<Vec<String>>,
     pub self_removed: bool,
     staged: Box<StagedCommit>,
 }
@@ -67,6 +70,28 @@ fn identity_of(credential: &Credential) -> String {
 
 fn leaf_of(node: &LeafNode) -> Leaf {
     Leaf { device_id: identity_of(node.credential()), signature_key: node.signature_key().as_slice().to_vec() }
+}
+
+/// What every leaf this device creates supports beyond the defaults: the admin list.
+fn capabilities() -> Capabilities {
+    Capabilities::builder().extensions(vec![ExtensionType::Unknown(ADMINS_EXTENSION)]).build()
+}
+
+fn admins_in(extensions: &Extensions<GroupContext>) -> Result<Option<Vec<String>>, SdkError> {
+    extensions
+        .unknown(ADMINS_EXTENSION)
+        .map(|extension| serde_json::from_slice(&extension.0).map_err(|error| SdkError::Mls(format!("admin list: {error}"))))
+        .transpose()
+}
+
+/// The group's extensions with `admins` as its admin list, required of every member.
+fn with_admins(group: &MlsGroup, admins: &[String]) -> Result<Extensions<GroupContext>, SdkError> {
+    let mut extensions = group.extensions().clone();
+    let required = RequiredCapabilitiesExtension::new(&[ExtensionType::Unknown(ADMINS_EXTENSION)], &[], &[]);
+    let list = serde_json::to_vec(admins).map_err(|error| SdkError::Mls(error.to_string()))?;
+    extensions.add_or_replace(Extension::RequiredCapabilities(required)).map_err(SdkError::mls)?;
+    extensions.add_or_replace(Extension::Unknown(ADMINS_EXTENSION, UnknownExtension(list))).map_err(SdkError::mls)?;
+    Ok(extensions)
 }
 
 fn decode_message(bytes: &[u8]) -> Result<MlsMessageIn, SdkError> {
@@ -116,15 +141,18 @@ impl MlsEngine {
     }
 
     pub fn create_group(&self, group_id: &[u8]) -> Result<(), SdkError> {
-        let config = MlsGroupCreateConfig::builder().ciphersuite(CIPHERSUITE).use_ratchet_tree_extension(true).build();
+        let config =
+            MlsGroupCreateConfig::builder().ciphersuite(CIPHERSUITE).capabilities(capabilities()).use_ratchet_tree_extension(true).build();
         MlsGroup::new_with_group_id(&self.provider, &self.signer, &config, GroupId::from_slice(group_id), self.credential.clone())
             .map_err(SdkError::mls)?;
         Ok(())
     }
 
     pub fn key_package(&self) -> Result<Vec<u8>, SdkError> {
-        let bundle =
-            KeyPackage::builder().build(CIPHERSUITE, &self.provider, &self.signer, self.credential.clone()).map_err(SdkError::mls)?;
+        let bundle = KeyPackage::builder()
+            .leaf_node_capabilities(capabilities())
+            .build(CIPHERSUITE, &self.provider, &self.signer, self.credential.clone())
+            .map_err(SdkError::mls)?;
         bundle.key_package().tls_serialize_detached().map_err(SdkError::mls)
     }
 
@@ -157,15 +185,54 @@ impl MlsEngine {
         Ok((serialize(&commit)?, serialize(&welcome)?))
     }
 
-    /// Removes every leaf of a device, so no copy of it stays in the group.
-    pub fn remove_member(&self, group_id: &[u8], device_id: &str) -> Result<Vec<u8>, SdkError> {
+    /// Removes every leaf of a device, so no copy of it stays in the group. `admins` is the new
+    /// admin list when the device was an admin.
+    pub fn remove_member(&self, group_id: &[u8], device_id: &str, admins: Option<&[String]>) -> Result<Vec<u8>, SdkError> {
         let mut group = self.load(group_id)?;
         let leaves: Vec<LeafNodeIndex> =
             group.members().filter(|member| identity_of(&member.credential) == device_id).map(|member| member.index).collect();
         if leaves.is_empty() {
             return Err(SdkError::Invalid(format!("{device_id} is not in the group")));
         }
-        let (commit, _, _) = group.remove_members(&self.provider, &self.signer, &leaves).map_err(SdkError::mls)?;
+        let extensions = admins.map(|admins| with_admins(&group, admins)).transpose()?;
+        let mut builder = group.commit_builder().propose_removals(leaves);
+        if let Some(extensions) = extensions {
+            builder = builder.propose_group_context_extensions(extensions).map_err(SdkError::mls)?;
+        }
+        let bundle = builder
+            .load_psks(self.provider.storage())
+            .map_err(SdkError::mls)?
+            .build(self.provider.rand(), self.provider.crypto(), &self.signer, |_| true)
+            .map_err(SdkError::mls)?
+            .stage_commit(&self.provider)
+            .map_err(SdkError::mls)?;
+        serialize(bundle.commit())
+    }
+
+    /// The group's admin list, or None while its creator is its only admin.
+    pub fn admins(&self, group_id: &[u8]) -> Result<Option<Vec<String>>, SdkError> {
+        admins_in(self.load(group_id)?.extensions())
+    }
+
+    /// Members whose leaf cannot hold an admin list: devices on a Buccanet older than admin lists.
+    pub fn without_admin_support(&self, group_id: &[u8]) -> Result<Vec<String>, SdkError> {
+        let group = self.load(group_id)?;
+        let extension = ExtensionType::Unknown(ADMINS_EXTENSION);
+        Ok(group
+            .public_group()
+            .members()
+            .filter(|member| {
+                !group.public_group().leaf(member.index).is_some_and(|leaf| leaf.capabilities().extensions().contains(&extension))
+            })
+            .map(|member| identity_of(&member.credential))
+            .collect())
+    }
+
+    /// Stages a commit that replaces the admin list; returns it to send.
+    pub fn set_admins(&self, group_id: &[u8], admins: &[String]) -> Result<Vec<u8>, SdkError> {
+        let mut group = self.load(group_id)?;
+        let extensions = with_admins(&group, admins)?;
+        let (commit, _, _) = group.update_group_context_extensions(&self.provider, extensions, &self.signer).map_err(SdkError::mls)?;
         serialize(&commit)
     }
 
@@ -209,10 +276,7 @@ impl MlsEngine {
         let sender = identity_of(processed.credential());
         match processed.into_content() {
             ProcessedMessageContent::ApplicationMessage(app) => Ok(Incoming::Application { sender, plaintext: app.into_bytes() }),
-            ProcessedMessageContent::StagedCommitMessage(staged) => {
-                let added = staged.add_proposals().map(|add| leaf_of(add.add_proposal().key_package().leaf_node())).collect();
-                Ok(Incoming::Commit(ReviewedCommit { committer: sender, added, self_removed: staged.self_removed(), staged }))
-            }
+            ProcessedMessageContent::StagedCommitMessage(staged) => Ok(Incoming::Commit(review(&group, sender, staged)?)),
             _ => Ok(Incoming::Ignored),
         }
     }
@@ -220,6 +284,16 @@ impl MlsEngine {
     pub fn merge_commit(&self, group_id: &[u8], commit: ReviewedCommit) -> Result<(), SdkError> {
         self.load(group_id)?.merge_staged_commit(&self.provider, *commit.staged).map_err(SdkError::mls)
     }
+}
+
+/// Reads what a staged commit changes, so the caller can decide before merging it.
+fn review(group: &MlsGroup, committer: String, staged: Box<StagedCommit>) -> Result<ReviewedCommit, SdkError> {
+    let added = staged.add_proposals().map(|add| leaf_of(add.add_proposal().key_package().leaf_node())).collect();
+    let removed =
+        staged.remove_proposals().filter_map(|remove| group.member(remove.remove_proposal().removed())).map(identity_of).collect();
+    let changes_admins = staged.queued_proposals().any(|queued| matches!(queued.proposal(), Proposal::GroupContextExtensions(_)));
+    let admins = if changes_admins { admins_in(staged.group_context().extensions())? } else { None };
+    Ok(ReviewedCommit { committer, added, removed, admins, self_removed: staged.self_removed(), staged })
 }
 
 #[cfg(test)]
@@ -248,5 +322,49 @@ mod tests {
         let joined = bob.join(&welcome).unwrap();
         assert_eq!(joined.welcomer, "admin");
         assert_eq!(joined.members.iter().map(|leaf| leaf.device_id.as_str()).collect::<Vec<_>>(), vec!["admin", "bob"]);
+    }
+
+    fn committed(engine: &MlsEngine, bytes: &[u8]) -> ReviewedCommit {
+        match engine.process(b"room", bytes).unwrap() {
+            Incoming::Commit(commit) => commit,
+            _ => panic!("expected a commit"),
+        }
+    }
+
+    #[test]
+    fn a_second_admin_comes_from_a_commit_and_leaves_with_its_removal() {
+        let (ada, bob, eve) = (engine("ada"), engine("bob"), engine("eve"));
+        ada.create_group(b"room").unwrap();
+        let add = |engine: &MlsEngine, id: &str| {
+            let (commit, welcome) =
+                ada.add_member(b"room", &engine.key_package().unwrap(), ExpectedJoiner { device_id: id, pinned_key: None }).unwrap();
+            ada.merge_pending(b"room").unwrap();
+            (commit, welcome)
+        };
+        bob.join(&add(&bob, "bob").1).unwrap();
+        assert_eq!(ada.admins(b"room").unwrap(), None);
+        let (add_eve, welcome) = add(&eve, "eve");
+        let commit = committed(&bob, &add_eve);
+        bob.merge_commit(b"room", commit).unwrap();
+        eve.join(&welcome).unwrap();
+
+        let admins = vec!["ada".to_string(), "bob".to_string()];
+        assert!(ada.without_admin_support(b"room").unwrap().is_empty());
+        let promote = ada.set_admins(b"room", &admins).unwrap();
+        ada.merge_pending(b"room").unwrap();
+        for member in [&bob, &eve] {
+            let commit = committed(member, &promote);
+            assert_eq!(commit.admins.as_deref(), Some(admins.as_slice()));
+            member.merge_commit(b"room", commit).unwrap();
+            assert_eq!(member.admins(b"room").unwrap().as_deref(), Some(admins.as_slice()));
+        }
+
+        let remove_ada = bob.remove_member(b"room", "ada", Some(&["bob".to_string()])).unwrap();
+        bob.merge_pending(b"room").unwrap();
+        let commit = committed(&eve, &remove_ada);
+        assert_eq!((commit.committer.as_str(), commit.removed.clone()), ("bob", vec!["ada".to_string()]));
+        assert_eq!(commit.admins, Some(vec!["bob".to_string()]));
+        eve.merge_commit(b"room", commit).unwrap();
+        assert_eq!(eve.admins(b"room").unwrap(), Some(vec!["bob".to_string()]));
     }
 }

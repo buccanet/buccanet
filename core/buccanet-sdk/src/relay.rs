@@ -3,7 +3,7 @@
 use buccanet_protocol::API_PREFIX;
 use buccanet_protocol::api::{
     Accepted, Approve, CreateRoom, DeviceRegistered, ErrorBody, InboxPage, InviteCreated, InvitePreview, JoinRequested, PendingRequest,
-    PostMessage, RegisterDevice, RemoveMember, RequestJoin, RoomView,
+    PostMessage, RegisterDevice, RemoveMember, RequestJoin, RoomView, SetAdmins,
 };
 use reqwest::{RequestBuilder, Response};
 use serde::de::DeserializeOwned;
@@ -128,6 +128,10 @@ impl RelayClient {
 
     pub async fn remove(&self, room_id: &str, device_id: &str, body: &RemoveMember) -> Result<Accepted, SdkError> {
         self.json(self.http.post(self.url(&format!("/rooms/{room_id}/members/{device_id}/remove"))).json(body)).await
+    }
+
+    pub async fn set_admins(&self, room_id: &str, body: &SetAdmins) -> Result<Accepted, SdkError> {
+        self.json(self.http.post(self.url(&format!("/rooms/{room_id}/admins"))).json(body)).await
     }
 
     pub async fn leave(&self, room_id: &str) -> Result<(), SdkError> {

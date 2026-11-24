@@ -3,7 +3,7 @@
 
 use buccanet_protocol::api::RoomPolicy;
 use buccanet_protocol::envelope::{Envelope, RoomRules, SharedMessage};
-use buccanet_protocol::events::{InboxBody, InboxEvent};
+use buccanet_protocol::events::{InboxBody, InboxEvent, MessageKind};
 
 use crate::client::Inner;
 use crate::events::{ChatMessage, ClientEvent, MemberInfo, PendingJoin};
@@ -18,7 +18,7 @@ pub enum Action {
         room_id: String,
         request_id: String,
     },
-    /// Commits the removal of a member who left, as the room admin.
+    /// Commits the removal of a member who left, as a room admin.
     Remove {
         room_id: String,
         device_id: String,
@@ -46,7 +46,9 @@ impl Outcome {
 
 pub fn apply(inner: &mut Inner, event: InboxEvent) -> Outcome {
     match event.body {
-        InboxBody::Message { room_id, seq, mls_message, .. } => on_message(inner, &room_id, seq, &mls_message),
+        InboxBody::Message { room_id, seq, kind, sender_device_id, mls_message, .. } => {
+            on_message(inner, Sealed { room_id: &room_id, seq, kind, sender: &sender_device_id }, &mls_message)
+        }
         InboxBody::Welcome { room_id, policy, start_seq, welcome } => on_welcome(inner, Arrival { room_id, policy, start_seq }, &welcome),
         InboxBody::JoinRequested { room_id, request_id, device_id, name, kind, .. } => {
             on_join_requested(inner, PendingJoin { room_id, request_id, device_id, name, kind })
@@ -61,7 +63,19 @@ pub fn apply(inner: &mut Inner, event: InboxEvent) -> Outcome {
     }
 }
 
-fn on_message(inner: &mut Inner, room_id: &str, seq: u64, bytes: &[u8]) -> Outcome {
+/// What the relay says about a sealed message, before it is opened.
+struct Sealed<'a> {
+    room_id: &'a str,
+    seq: u64,
+    kind: MessageKind,
+    sender: &'a str,
+}
+
+/// The text a message that this device cannot decrypt shows in its place.
+const UNREADABLE_TEXT: &str = "This message could not be decrypted on this device.";
+
+fn on_message(inner: &mut Inner, sealed: Sealed, bytes: &[u8]) -> Outcome {
+    let (room_id, seq) = (sealed.room_id, sealed.seq);
     let Some(room) = inner.state.rooms.get(room_id) else { return Outcome::default() };
     if seq < room.start_seq {
         return Outcome::default();
@@ -69,7 +83,7 @@ fn on_message(inner: &mut Inner, room_id: &str, seq: u64, bytes: &[u8]) -> Outco
     let group_id = room.group_id.clone();
     let incoming = match inner.mls.process(&group_id, bytes) {
         Ok(incoming) => incoming,
-        Err(error) => return Outcome::error(format!("room {room_id} seq {seq}: {error}")),
+        Err(error) => return unreadable(inner, &sealed, format!("room {room_id} seq {seq}: {error}")),
     };
     if let Some(room) = inner.state.rooms.get_mut(room_id) {
         room.last_seq = room.last_seq.max(seq);
@@ -81,13 +95,44 @@ fn on_message(inner: &mut Inner, room_id: &str, seq: u64, bytes: &[u8]) -> Outco
     }
 }
 
-/// Applies a commit only when the room admin made it and the devices it adds check out.
+/// A message this device could not open: an application message keeps its place in the
+/// conversation, marked unreadable, so nobody mistakes it for one that was never sent.
+fn unreadable(inner: &mut Inner, sealed: &Sealed, error: String) -> Outcome {
+    let mut outcome = Outcome::error(error);
+    let Some(room) = inner.state.rooms.get_mut(sealed.room_id) else { return outcome };
+    if sealed.kind != MessageKind::Application {
+        return outcome;
+    }
+    let author = room.member(sealed.sender).cloned().unwrap_or_else(|| MemberInfo::unverified(sealed.sender));
+    let message = ChatMessage {
+        room_id: sealed.room_id.into(),
+        seq: sealed.seq,
+        sender_device_id: sealed.sender.into(),
+        author_name: author.name,
+        author_kind: author.kind,
+        text: UNREADABLE_TEXT.into(),
+        at: crate::time::now_iso(),
+        own: false,
+        shared: false,
+        mentions: Vec::new(),
+        unreadable: true,
+    };
+    room.store_message(message.clone());
+    outcome.events.push(ClientEvent::Message { message });
+    outcome
+}
+
+/// Applies a commit only when a room admin made it and what it changes checks out.
 fn on_commit(inner: &mut Inner, room_id: &str, commit: ReviewedCommit) -> Outcome {
     let Some(room) = inner.state.rooms.get(room_id) else { return Outcome::default() };
     let group_id = room.group_id.clone();
-    let checked = inner.mls.members(&group_id).map_err(|error| error.to_string()).and_then(|current| {
-        check_commit(Proposed { committer: &commit.committer, added: &commit.added }, &room.admin_id, &current, &inner.state.pins)
-    });
+    let proposed =
+        Proposed { committer: &commit.committer, added: &commit.added, removed: &commit.removed, admins: commit.admins.as_deref() };
+    let checked = inner
+        .mls
+        .members(&group_id)
+        .map_err(|error| error.to_string())
+        .and_then(|current| check_commit(proposed, &room.admins, &current, &inner.state.pins));
     if let Err(reason) = checked {
         return Outcome::error(format!("room {room_id}: commit refused, {reason}"));
     }
@@ -104,17 +149,19 @@ fn on_commit(inner: &mut Inner, room_id: &str, commit: ReviewedCommit) -> Outcom
     outcome
 }
 
-/// Rebuilds a room's members from its MLS tree, naming them from `directory` when given.
+/// Rebuilds a room's members and admins from its MLS group, naming members from `directory`
+/// when given.
 pub fn reconcile(inner: &mut Inner, room_id: &str, directory: &[MemberInfo]) -> Outcome {
     let Some(group_id) = inner.state.rooms.get(room_id).map(|room| room.group_id.clone()) else { return Outcome::default() };
-    let leaves = match inner.mls.members(&group_id) {
-        Ok(leaves) => leaves,
+    let read = inner.mls.members(&group_id).and_then(|leaves| Ok((leaves, inner.mls.admins(&group_id)?)));
+    let (leaves, admins) = match read {
+        Ok(read) => read,
         Err(error) => return Outcome::error(format!("room {room_id}: {error}")),
     };
     let me = inner.state.identity.device_id.clone();
     let Some(room) = inner.state.rooms.get_mut(room_id) else { return Outcome::default() };
+    room.adopt_admins(admins, &me);
     room.reconcile_members(&leaves, directory);
-    room.admin = room.admin_id == me;
     Outcome::event(ClientEvent::RoomUpdated { room: room.info() })
 }
 
@@ -124,7 +171,8 @@ fn on_envelope(inner: &mut Inner, room_id: &str, seq: u64, sender: String, plain
     let Some(room) = inner.state.rooms.get_mut(room_id) else { return Outcome::default() };
     let author = room.member(&sender).cloned().unwrap_or_else(|| MemberInfo::unverified(&sender));
     match envelope {
-        Envelope::Text { text, at, .. } => {
+        Envelope::Text { text, at, mentions, .. } => {
+            let mentions = mentions.into_iter().filter(|device_id| room.member(device_id).is_some()).collect();
             let message = ChatMessage {
                 room_id: room_id.into(),
                 seq,
@@ -135,15 +183,17 @@ fn on_envelope(inner: &mut Inner, room_id: &str, seq: u64, sender: String, plain
                 at,
                 own: false,
                 shared: false,
+                mentions,
+                unreadable: false,
             };
             room.store_message(message.clone());
             Outcome::event(ClientEvent::Message { message })
         }
-        Envelope::RoomMeta { title } if sender == room.admin_id => {
+        Envelope::RoomMeta { title } if room.is_admin(&sender) => {
             room.title = Some(title);
             Outcome::event(ClientEvent::RoomUpdated { room: room.info() })
         }
-        Envelope::RoomRules(rules) if sender == room.admin_id && rules::replaces(room.rules.as_ref(), &rules) => {
+        Envelope::RoomRules(rules) if room.is_admin(&sender) && rules::replaces(room.rules.as_ref(), &rules) => {
             room.rules = Some(rules);
             Outcome::event(ClientEvent::RoomUpdated { room: room.info() })
         }
@@ -179,6 +229,8 @@ fn import_history(room: &mut RoomState, shared_by: &str, share: SharedHistory) -
             at: shared.at,
             own: false,
             shared: true,
+            mentions: Vec::new(),
+            unreadable: false,
         });
     }
     room.history_imported = true;
@@ -240,6 +292,8 @@ fn joined_room(arrival: Arrival, joined: Joined) -> RoomState {
         history_imported: false,
         rules: None,
         admin_id: joined.welcomer,
+        admins: Vec::new(),
+        sealed: 0,
     }
 }
 
@@ -267,7 +321,8 @@ fn on_member_joined(inner: &mut Inner, room_id: &str, member: MemberInfo) -> Out
     reconcile(inner, room_id, &[member])
 }
 
-/// A member left: the room admin takes its leaf out of the group.
+/// A member left: each room admin offers to take its leaf out of the group, and the relay
+/// keeps the first removal.
 fn on_member_leaving(inner: &mut Inner, room_id: String, device_id: String) -> Outcome {
     let is_admin = inner.state.rooms.get(&room_id).is_some_and(|room| room.admin && room.member(&device_id).is_some());
     let actions = if is_admin { vec![Action::Remove { room_id, device_id }] } else { Vec::new() };

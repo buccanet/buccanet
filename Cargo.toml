@@ -10,7 +10,7 @@ members = [
 
 [workspace.package]
 # The version of the core crates (protocol, SDK, bindings). bucca has its own in cli/Cargo.toml.
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 license = "Apache-2.0"
 repository = "https://github.com/buccanet/buccanet"

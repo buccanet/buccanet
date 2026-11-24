@@ -139,6 +139,15 @@ pub struct RemoveMember {
     pub commit: Vec<u8>,
 }
 
+/// A commit that replaces the room's admin list, and that list for the relay.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetAdmins {
+    #[serde(with = "crate::b64")]
+    pub commit: Vec<u8>,
+    pub admins: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PostMessage {
@@ -146,6 +155,10 @@ pub struct PostMessage {
     pub client_message_id: String,
     #[serde(with = "crate::b64")]
     pub mls_message: Vec<u8>,
+    /// How many messages this device has sealed in the room, this one included. A number the
+    /// relay already saw means a stale copy of the device's state, whose keys were used.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_seq: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -179,5 +192,6 @@ pub mod codes {
     pub const RATE_LIMITED: &str = "rate_limited";
     pub const INVITE_EXPIRED: &str = "invite_expired";
     pub const ALREADY_MEMBER: &str = "already_member";
+    pub const STALE_STATE: &str = "stale_state";
     pub const INTERNAL: &str = "internal";
 }

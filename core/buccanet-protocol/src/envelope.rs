@@ -16,6 +16,8 @@ pub const TEXT_MAX_CHARS: usize = 16_000;
 pub const TITLE_MAX_CHARS: usize = 100;
 /// Longest room rules, in characters.
 pub const RULES_MAX_CHARS: usize = 8_000;
+/// Most members a text names, as many as a room holds.
+pub const MENTIONS_MAX: usize = 1000;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RawEnvelope {
@@ -53,7 +55,8 @@ pub struct RoomRules {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Envelope {
-    Text { author: Author, text: String, at: String },
+    /// `mentions` holds the device ids of the members the text names with `@`.
+    Text { author: Author, text: String, at: String, mentions: Vec<String> },
     RoomMeta { title: String },
     RoomRules(RoomRules),
     HistoryShare { shared_by: Author, title: Option<String>, rules: Option<RoomRules>, messages: Vec<SharedMessage> },
@@ -65,6 +68,8 @@ struct TextBody {
     author: Author,
     text: String,
     at: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    mentions: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -105,6 +110,7 @@ impl Envelope {
     /// Bounds every field a member writes, on both sides of the wire.
     fn validate(&self) -> Result<(), EnvelopeError> {
         match self {
+            Envelope::Text { mentions, .. } if mentions.len() > MENTIONS_MAX => Err(EnvelopeError::TooLong("mentions")),
             Envelope::Text { text, .. } => within(text, TEXT_MAX_CHARS, "text"),
             Envelope::RoomMeta { title } => within(title, TITLE_MAX_CHARS, "title"),
             Envelope::RoomRules(rules) => within(&rules.text, RULES_MAX_CHARS, "rules"),
@@ -123,9 +129,10 @@ impl Envelope {
     pub fn encode(&self) -> Result<Vec<u8>, EnvelopeError> {
         self.validate()?;
         let (kind, body) = match self {
-            Envelope::Text { author, text, at } => {
-                ("text", serde_json::to_value(TextBody { author: author.clone(), text: text.clone(), at: at.clone() })?)
-            }
+            Envelope::Text { author, text, at, mentions } => (
+                "text",
+                serde_json::to_value(TextBody { author: author.clone(), text: text.clone(), at: at.clone(), mentions: mentions.clone() })?,
+            ),
             Envelope::RoomMeta { title } => ("room_meta", serde_json::to_value(RoomMetaBody { title: title.clone() })?),
             Envelope::RoomRules(rules) => ("room_rules", serde_json::to_value(rules)?),
             Envelope::HistoryShare { shared_by, title, rules, messages } => (
@@ -157,7 +164,7 @@ impl Envelope {
         Ok(match raw.kind.as_str() {
             "text" => {
                 let body: TextBody = serde_json::from_value(raw.body)?;
-                Envelope::Text { author: body.author, text: body.text, at: body.at }
+                Envelope::Text { author: body.author, text: body.text, at: body.at, mentions: body.mentions }
             }
             "room_meta" => Envelope::RoomMeta { title: serde_json::from_value::<RoomMetaBody>(raw.body)?.title },
             "room_rules" => Envelope::RoomRules(serde_json::from_value(raw.body)?),
@@ -177,8 +184,10 @@ mod tests {
     #[test]
     fn text_round_trips_and_unknown_types_are_tolerated() {
         let author = Author { name: "Ada".into(), kind: DeviceKind::Agent };
-        let text = Envelope::Text { author, text: "hi".into(), at: "2026-11-23T00:00:00Z".into() };
+        let text = Envelope::Text { author, text: "hi @Bob".into(), at: "2026-11-23T00:00:00Z".into(), mentions: vec!["bob".into()] };
         assert_eq!(Envelope::decode(&text.encode().unwrap()).unwrap(), text);
+        let older = br#"{"v":1,"type":"text","body":{"author":{"name":"A","kind":"human"},"text":"hi","at":"x"}}"#;
+        assert!(matches!(Envelope::decode(older).unwrap(), Envelope::Text { mentions, .. } if mentions.is_empty()));
         let future = br#"{"v":1,"type":"reaction","body":{"emoji":"+1"}}"#;
         assert_eq!(Envelope::decode(future).unwrap(), Envelope::Unknown { kind: "reaction".into() });
         assert!(Envelope::decode(br#"{"v":2,"type":"text","body":{}}"#).is_err());
@@ -199,7 +208,7 @@ mod tests {
     #[test]
     fn oversized_fields_are_refused() {
         let author = Author { name: "Ada".into(), kind: DeviceKind::Agent };
-        let long = Envelope::Text { author, text: "x".repeat(TEXT_MAX_CHARS + 1), at: String::new() };
+        let long = Envelope::Text { author, text: "x".repeat(TEXT_MAX_CHARS + 1), at: String::new(), mentions: vec![] };
         assert!(long.encode().is_err());
         let raw = format!(r#"{{"v":1,"type":"room_meta","body":{{"title":"{}"}}}}"#, "t".repeat(TITLE_MAX_CHARS + 1));
         assert!(Envelope::decode(raw.as_bytes()).is_err());

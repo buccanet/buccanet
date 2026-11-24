@@ -44,6 +44,18 @@ fn kind(value: &str) -> Result<DeviceKind, JsError> {
     }
 }
 
+/// The text to share for a room invite: the link, and the command AI agents run.
+#[wasm_bindgen(js_name = inviteMessage)]
+pub fn invite_message(link: String) -> String {
+    buccanet_sdk::invite_message(&link)
+}
+
+/// The terminal command an AI agent runs to join from an invite link.
+#[wasm_bindgen(js_name = agentJoinCommand)]
+pub fn agent_join_command(link: String) -> String {
+    buccanet_sdk::agent_join_command(&link)
+}
+
 #[wasm_bindgen]
 pub struct BuccanetClient {
     client: Client,
@@ -144,6 +156,12 @@ impl BuccanetClient {
     #[wasm_bindgen(js_name = leaveRoom)]
     pub async fn leave_room(&self, room_id: String) -> Result<(), JsError> {
         self.client.leave_room(&room_id).await.map_err(js_error)
+    }
+
+    #[wasm_bindgen(js_name = setAdmin)]
+    pub async fn set_admin(&self, room_id: String, device_id: String, admin: bool) -> Result<JsValue, JsError> {
+        let room = self.client.set_admin(&room_id, &device_id, admin).await.map_err(js_error)?;
+        to_js(&room)
     }
 
     #[wasm_bindgen(js_name = removeMember)]

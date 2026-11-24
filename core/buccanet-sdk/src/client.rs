@@ -47,14 +47,16 @@ impl Inner {
         self.state.rooms.get_mut(room_id).ok_or_else(|| SdkError::UnknownRoom(room_id.into()))
     }
 
-    /// Brings state saved before rooms tracked their admin up to date: the admin of a room is
-    /// its creator, the first leaf of the tree, and every device in a tree gets pinned.
+    /// Reads each room's admins from its MLS group and pins every device in its tree. State
+    /// saved before rooms tracked their admin takes the creator, the first leaf of the tree.
     fn adopt_trees(&mut self) -> Result<(), SdkError> {
+        let me = self.state.identity.device_id.clone();
         for room in self.state.rooms.values_mut() {
             let leaves = self.mls.members(&room.group_id)?;
             if room.admin_id.is_empty() {
                 room.admin_id = leaves.first().map(|leaf| leaf.device_id.clone()).unwrap_or_default();
             }
+            room.adopt_admins(self.mls.admins(&room.group_id)?, &me);
             pin_new(&mut self.state.pins, &leaves);
         }
         Ok(())
@@ -221,12 +223,15 @@ impl Client {
         }
     }
 
-    /// Follows the live inbox forever, reconnecting with backoff. Spawn it once per device.
+    /// Follows the live inbox forever, reconnecting with backoff. Spawn it once per device. A
+    /// dropped or unreachable connection shows as `Connection { live: false }` only: the next
+    /// connection catches up from the stored cursor, so nothing is lost.
     pub async fn run(&self) {
         let mut delay = RECONNECT_MIN_MS;
         loop {
             match self.follow().await {
                 Ok(()) => delay = RECONNECT_MIN_MS,
+                Err(SdkError::Network(_)) => {}
                 Err(error) => self.host.on_event(ClientEvent::Error { message: format!("stream: {error}") }),
             }
             self.host.on_event(ClientEvent::Connection { live: false });
