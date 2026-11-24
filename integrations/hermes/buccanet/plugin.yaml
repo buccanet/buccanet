@@ -13,7 +13,7 @@ requires_env:
     prompt: "Buccanet bridge URL"
     password: false
   - name: BUCCANET_BRIDGE_TOKEN
-    description: "Token given to `bucca serve-bridge --token`"
+    description: "Token `bucca serve-bridge` reads from BUCCANET_BRIDGE_TOKEN or from its --token-file"
     prompt: "Buccanet bridge token"
     password: true
 optional_env:

@@ -1,13 +1,15 @@
 //! Applies one inbox event to the device state. Pure with respect to the network: what
 //! needs the relay afterwards is returned as an [`Action`].
 
+use buccanet_protocol::api::RoomPolicy;
 use buccanet_protocol::envelope::Envelope;
 use buccanet_protocol::events::{InboxBody, InboxEvent};
 
 use crate::client::Inner;
 use crate::events::{ChatMessage, ClientEvent, MemberInfo, PendingJoin};
-use crate::mls::Incoming;
+use crate::mls::{Incoming, Joined, ReviewedCommit};
 use crate::state::RoomState;
+use crate::trust::{Proposed, check_commit, key_change, pin_new};
 
 #[derive(Debug, PartialEq)]
 pub enum Action {
@@ -25,12 +27,16 @@ impl Outcome {
     fn event(event: ClientEvent) -> Self {
         Self { events: vec![event], actions: Vec::new() }
     }
+
+    fn error(message: String) -> Self {
+        Self::event(ClientEvent::Error { message })
+    }
 }
 
 pub fn apply(inner: &mut Inner, event: InboxEvent) -> Outcome {
     match event.body {
         InboxBody::Message { room_id, seq, mls_message, .. } => on_message(inner, &room_id, seq, &mls_message),
-        InboxBody::Welcome { room_id, policy, start_seq, welcome } => on_welcome(inner, room_id, policy, start_seq, &welcome),
+        InboxBody::Welcome { room_id, policy, start_seq, welcome } => on_welcome(inner, Arrival { room_id, policy, start_seq }, &welcome),
         InboxBody::JoinRequested { room_id, request_id, device_id, name, kind, .. } => {
             on_join_requested(inner, PendingJoin { room_id, request_id, device_id, name, kind })
         }
@@ -50,25 +56,62 @@ fn on_message(inner: &mut Inner, room_id: &str, seq: u64, bytes: &[u8]) -> Outco
     let group_id = room.group_id.clone();
     let incoming = match inner.mls.process(&group_id, bytes) {
         Ok(incoming) => incoming,
-        Err(error) => return Outcome::event(ClientEvent::Error { message: format!("room {room_id} seq {seq}: {error}") }),
+        Err(error) => return Outcome::error(format!("room {room_id} seq {seq}: {error}")),
     };
     if let Some(room) = inner.state.rooms.get_mut(room_id) {
         room.last_seq = room.last_seq.max(seq);
     }
     match incoming {
         Incoming::Application { sender, plaintext } => on_envelope(inner, room_id, seq, sender, &plaintext),
-        Incoming::Commit { self_removed: true } => left(inner, room_id),
-        Incoming::Commit { self_removed: false } => Outcome { events: Vec::new(), actions: vec![Action::RefreshRoom { room_id: room_id.into() }] },
+        Incoming::Commit(commit) => on_commit(inner, room_id, commit),
         Incoming::Ignored => Outcome::default(),
     }
+}
+
+/// Applies a commit only when the room admin made it and the devices it adds check out.
+fn on_commit(inner: &mut Inner, room_id: &str, commit: ReviewedCommit) -> Outcome {
+    let Some(room) = inner.state.rooms.get(room_id) else { return Outcome::default() };
+    let group_id = room.group_id.clone();
+    let checked = inner.mls.members(&group_id).map_err(|error| error.to_string()).and_then(|current| {
+        check_commit(Proposed { committer: &commit.committer, added: &commit.added }, &room.admin_id, &current, &inner.state.pins)
+    });
+    if let Err(reason) = checked {
+        return Outcome::error(format!("room {room_id}: commit refused, {reason}"));
+    }
+    let (self_removed, added) = (commit.self_removed, commit.added.clone());
+    if let Err(error) = inner.mls.merge_commit(&group_id, commit) {
+        return Outcome::error(format!("room {room_id}: {error}"));
+    }
+    if self_removed {
+        return left(inner, room_id);
+    }
+    pin_new(&mut inner.state.pins, &added);
+    let mut outcome = reconcile(inner, room_id, &[]);
+    outcome.actions.push(Action::RefreshRoom { room_id: room_id.into() });
+    outcome
+}
+
+/// Rebuilds a room's members from its MLS tree, naming them from `directory` when given.
+pub fn reconcile(inner: &mut Inner, room_id: &str, directory: &[MemberInfo]) -> Outcome {
+    let Some(group_id) = inner.state.rooms.get(room_id).map(|room| room.group_id.clone()) else { return Outcome::default() };
+    let leaves = match inner.mls.members(&group_id) {
+        Ok(leaves) => leaves,
+        Err(error) => return Outcome::error(format!("room {room_id}: {error}")),
+    };
+    let me = inner.state.identity.device_id.clone();
+    let Some(room) = inner.state.rooms.get_mut(room_id) else { return Outcome::default() };
+    room.reconcile_members(&leaves, directory);
+    room.admin = room.admin_id == me;
+    Outcome::event(ClientEvent::RoomUpdated { room: room.info() })
 }
 
 fn on_envelope(inner: &mut Inner, room_id: &str, seq: u64, sender: String, plaintext: &[u8]) -> Outcome {
     let Ok(envelope) = Envelope::decode(plaintext) else { return Outcome::default() };
     let me = inner.state.identity.device_id.clone();
     let Some(room) = inner.state.rooms.get_mut(room_id) else { return Outcome::default() };
+    let author = room.member(&sender).cloned().unwrap_or_else(|| MemberInfo::unverified(&sender));
     match envelope {
-        Envelope::Text { author, text, at } => {
+        Envelope::Text { text, at, .. } => {
             let message = ChatMessage {
                 room_id: room_id.into(),
                 seq,
@@ -87,8 +130,8 @@ fn on_envelope(inner: &mut Inner, room_id: &str, seq: u64, sender: String, plain
             room.title = Some(title);
             Outcome::event(ClientEvent::RoomUpdated { room: room.info() })
         }
-        Envelope::HistoryShare { shared_by, title, messages } if sender != me && !room.history_imported => {
-            import_history(room, &shared_by.name, title, messages)
+        Envelope::HistoryShare { title, messages, .. } if sender != me && sender == room.admin_id && !room.history_imported => {
+            import_history(room, &author.name, title, messages)
         }
         Envelope::HistoryShare { .. } | Envelope::Unknown { .. } => Outcome::default(),
     }
@@ -126,34 +169,58 @@ fn import_history(
     Outcome { events, actions: Vec::new() }
 }
 
-fn on_welcome(inner: &mut Inner, room_id: String, policy: buccanet_protocol::api::RoomPolicy, start_seq: u64, welcome: &[u8]) -> Outcome {
+/// Where a Welcome lets this device in, as the relay announced it.
+struct Arrival {
+    room_id: String,
+    policy: RoomPolicy,
+    start_seq: u64,
+}
+
+fn on_welcome(inner: &mut Inner, arrival: Arrival, welcome: &[u8]) -> Outcome {
+    let room_id = arrival.room_id.clone();
     if inner.state.rooms.contains_key(&room_id) {
         return Outcome::default();
     }
-    let group_id = match inner.mls.join(welcome) {
-        Ok(group_id) => group_id,
-        Err(error) => return Outcome::event(ClientEvent::Error { message: format!("joining room {room_id}: {error}") }),
+    if !inner.state.pending_joins.contains(&room_id) {
+        return Outcome::error(format!("refused a Welcome to room {room_id}, which this device never asked to join"));
+    }
+    let joined = match inner.mls.join(welcome) {
+        Ok(joined) => joined,
+        Err(error) => return Outcome::error(format!("joining room {room_id}: {error}")),
     };
-    let room = RoomState {
-        room_id: room_id.clone(),
-        group_id,
+    inner.state.pending_joins.retain(|pending| *pending != room_id);
+    if let Some(changed) = key_change(&inner.state.pins, &joined.members) {
+        let message = format!("refused room {room_id}: {} presents a signing key that differs from the one first seen", changed.device_id);
+        let _ = inner.mls.delete_group(&joined.group_id);
+        return Outcome::error(message);
+    }
+    pin_new(&mut inner.state.pins, &joined.members);
+    let room = joined_room(arrival, joined);
+    let info = room.info();
+    inner.state.rooms.insert(room_id.clone(), room);
+    reconcile(inner, &room_id, &[]);
+    Outcome { events: vec![ClientEvent::JoinedRoom { room: info }], actions: vec![Action::RefreshRoom { room_id }] }
+}
+
+fn joined_room(arrival: Arrival, joined: Joined) -> RoomState {
+    RoomState {
+        room_id: arrival.room_id,
+        group_id: joined.group_id,
         title: None,
-        policy,
+        policy: arrival.policy,
         admin: false,
-        start_seq,
-        last_seq: start_seq.saturating_sub(1),
+        start_seq: arrival.start_seq,
+        last_seq: arrival.start_seq.saturating_sub(1),
         members: Vec::new(),
         messages: Vec::new(),
         pending: Vec::new(),
         history_imported: false,
-    };
-    let info = room.info();
-    inner.state.rooms.insert(room_id.clone(), room);
-    Outcome { events: vec![ClientEvent::JoinedRoom { room: info }], actions: vec![Action::RefreshRoom { room_id }] }
+        admin_id: joined.welcomer,
+    }
 }
 
 fn on_join_requested(inner: &mut Inner, request: PendingJoin) -> Outcome {
-    let owners = inner.state.auto_approve.owners.clone();
+    let owners: Vec<String> = inner.state.auto_approve.owners.iter().map(|owner| owner.device_id.clone()).collect();
     let Some(room) = inner.state.rooms.get_mut(&request.room_id) else { return Outcome::default() };
     if !room.admin {
         return Outcome::default();
@@ -169,27 +236,25 @@ fn on_join_requested(inner: &mut Inner, request: PendingJoin) -> Outcome {
     Outcome { events: vec![ClientEvent::JoinRequested { request }], actions }
 }
 
+/// Names a member the commit already added; the MLS tree decides who is in the room.
 fn on_member_joined(inner: &mut Inner, room_id: &str, member: MemberInfo) -> Outcome {
     let Some(room) = inner.state.rooms.get_mut(room_id) else { return Outcome::default() };
     room.pending.retain(|pending| pending.device_id != member.device_id);
-    if !room.members.iter().any(|existing| existing.device_id == member.device_id) {
-        room.members.push(member);
-    }
-    Outcome::event(ClientEvent::RoomUpdated { room: room.info() })
+    reconcile(inner, room_id, &[member])
 }
 
 fn on_member_removed(inner: &mut Inner, room_id: &str, device_id: &str) -> Outcome {
     if device_id == inner.state.identity.device_id {
         return left(inner, room_id);
     }
-    let Some(room) = inner.state.rooms.get_mut(room_id) else { return Outcome::default() };
-    room.members.retain(|member| member.device_id != device_id);
-    Outcome::event(ClientEvent::RoomUpdated { room: room.info() })
+    reconcile(inner, room_id, &[])
 }
 
 fn left(inner: &mut Inner, room_id: &str) -> Outcome {
-    match inner.state.rooms.remove(room_id) {
-        Some(_) => Outcome::event(ClientEvent::LeftRoom { room_id: room_id.into() }),
-        None => Outcome::default(),
+    let Some(room) = inner.state.rooms.remove(room_id) else { return Outcome::default() };
+    let mut outcome = Outcome::event(ClientEvent::LeftRoom { room_id: room_id.into() });
+    if let Err(error) = inner.mls.delete_group(&room.group_id) {
+        outcome.events.push(ClientEvent::Error { message: format!("room {room_id}: secrets not deleted, {error}") });
     }
+    outcome
 }

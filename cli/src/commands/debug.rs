@@ -2,8 +2,8 @@
 
 use std::sync::Arc;
 
-use clap::ValueEnum;
 use buccanet_sdk::{ChatMessage, Client, ClientEvent, DeviceKind, RoomInfo, RoomPolicy};
+use clap::ValueEnum;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, BufReader};
 
@@ -13,6 +13,7 @@ use crate::host::{Events, open_client};
 use crate::mcp::control::{self, Backend};
 use crate::mcp::tools::ToolContext;
 use crate::profile::{self, Profile, ProfileError};
+use crate::text;
 
 #[derive(Clone, Copy, ValueEnum)]
 pub enum KindArg {
@@ -85,9 +86,10 @@ pub async fn rooms(name: &str) -> CommandResult {
         Access::Owner(owner) => serde_json::from_value(through_owner(&owner, "list_rooms", json!({})).await?["rooms"].take())?,
     };
     for room in rooms {
-        let members: Vec<String> = room.members.iter().map(|member| format!("{} ({})", member.name, kind_label(member.kind))).collect();
-        let title = room.title.unwrap_or_else(|| "untitled".into());
-        println!("{} {title}: {}", room.room_id, members.join(", "));
+        let members: Vec<String> =
+            room.members.iter().map(|member| format!("{} ({})", text::line(&member.name), kind_label(member.kind))).collect();
+        let title = room.title.as_deref().map_or_else(|| "untitled".into(), text::line);
+        println!("{} {title}: {}", text::line(&room.room_id), members.join(", "));
     }
     Ok(())
 }
@@ -96,7 +98,8 @@ pub async fn create(name: &str, title: Option<String>, policy: RoomPolicy) -> Co
     let room_id = match access(name).await? {
         Access::Direct(client) => client.create_room(title, policy).await?.room_id,
         Access::Owner(owner) => {
-            let args = json!({ "title": title, "approval": policy.approval, "maxMembers": policy.max_members, "agentBurst": policy.agent_burst });
+            let args =
+                json!({ "title": title, "approval": policy.approval, "maxMembers": policy.max_members, "agentBurst": policy.agent_burst });
             through_owner(&owner, "create_room", args).await?["roomId"].as_str().unwrap_or_default().to_string()
         }
     };
@@ -107,7 +110,9 @@ pub async fn create(name: &str, title: Option<String>, policy: RoomPolicy) -> Co
 pub async fn invite(name: &str, room: &str) -> CommandResult {
     let link = match access(name).await? {
         Access::Direct(client) => client.create_invite(&resolve_room(&client, room).await?).await?,
-        Access::Owner(owner) => through_owner(&owner, "create_invite", json!({ "roomId": room })).await?["invite"].as_str().unwrap_or_default().to_string(),
+        Access::Owner(owner) => {
+            through_owner(&owner, "create_invite", json!({ "roomId": room })).await?["invite"].as_str().unwrap_or_default().to_string()
+        }
     };
     println!("{link}");
     Ok(())
@@ -141,7 +146,8 @@ pub async fn requests(name: &str, room: &str) -> CommandResult {
     let (_profile, client, _) = open(name).await?;
     let room = resolve_room(&client, room).await?;
     for request in client.pending_requests(&room).await? {
-        println!("{} {} ({}) device {}", request.request_id, request.name, kind_label(request.kind), request.device_id);
+        let (id, name, device) = (text::line(&request.request_id), text::line(&request.name), text::line(&request.device_id));
+        println!("{id} {name} ({}) device {device}", kind_label(request.kind));
     }
     Ok(())
 }
@@ -163,7 +169,9 @@ pub async fn reject(name: &str, room: &str, request: &str) -> CommandResult {
 pub async fn send(name: &str, room: &str, text: &str) -> CommandResult {
     let seq = match access(name).await? {
         Access::Direct(client) => client.send_text(&resolve_room(&client, room).await?, text).await?.seq,
-        Access::Owner(owner) => through_owner(&owner, "send_message", json!({ "roomId": room, "text": text })).await?["seq"].as_u64().unwrap_or_default(),
+        Access::Owner(owner) => {
+            through_owner(&owner, "send_message", json!({ "roomId": room, "text": text })).await?["seq"].as_u64().unwrap_or_default()
+        }
     };
     println!("{seq}");
     Ok(())

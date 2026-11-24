@@ -16,7 +16,7 @@ pub struct Framing {
 pub enum FramingError {
     #[error("bytes are not an MLS message")]
     Malformed,
-    #[error("only private or public handshake and application messages are accepted here")]
+    #[error("only encrypted handshake and application messages (PrivateMessage) are accepted here")]
     NotProtocolMessage,
     #[error("proposals by reference are not accepted; send commits with inline proposals")]
     Proposal,
@@ -26,7 +26,6 @@ pub fn read_framing(bytes: &[u8]) -> Result<Framing, FramingError> {
     let message = MlsMessageIn::tls_deserialize_exact(bytes).map_err(|_| FramingError::Malformed)?;
     let protocol: ProtocolMessage = match message.extract() {
         MlsMessageBodyIn::PrivateMessage(private) => private.into(),
-        MlsMessageBodyIn::PublicMessage(public) => public.into(),
         _ => return Err(FramingError::NotProtocolMessage),
     };
     let kind = match protocol.content_type() {
@@ -39,9 +38,7 @@ pub fn read_framing(bytes: &[u8]) -> Result<Framing, FramingError> {
 
 /// True when the bytes are an MLS Welcome.
 pub fn is_welcome(bytes: &[u8]) -> bool {
-    MlsMessageIn::tls_deserialize_exact(bytes)
-        .map(|message| matches!(message.extract(), MlsMessageBodyIn::Welcome(_)))
-        .unwrap_or(false)
+    MlsMessageIn::tls_deserialize_exact(bytes).map(|message| matches!(message.extract(), MlsMessageBodyIn::Welcome(_))).unwrap_or(false)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -67,9 +64,7 @@ pub fn key_package_owner(bytes: &[u8]) -> Result<KeyPackageOwner, KeyPackageErro
     use openmls_rust_crypto::RustCrypto;
 
     let package_in = KeyPackageIn::tls_deserialize_exact(bytes).map_err(|_| KeyPackageError::Invalid)?;
-    let package = package_in
-        .validate(&RustCrypto::default(), ProtocolVersion::Mls10)
-        .map_err(|_| KeyPackageError::Invalid)?;
+    let package = package_in.validate(&RustCrypto::default(), ProtocolVersion::Mls10).map_err(|_| KeyPackageError::Invalid)?;
     if package.ciphersuite() != crate::CIPHERSUITE {
         return Err(KeyPackageError::Ciphersuite);
     }

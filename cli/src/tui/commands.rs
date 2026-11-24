@@ -3,6 +3,7 @@
 use buccanet_sdk::RoomPolicy;
 
 use super::app::App;
+use crate::text;
 
 pub const HELP: &str = "/new <title>  /invite  /join <link>  /requests  /approve  /reject  /quit  · Tab: rooms · ↑↓ pick a room · wheel or PgUp/PgDn: scroll · Ctrl+C twice: quit";
 
@@ -62,14 +63,14 @@ async fn invite(app: &mut App) -> Result<String, String> {
 
 async fn join(app: &mut App, link: &str) -> Result<String, String> {
     let pending = app.client.join(link).await.map_err(|error| error.to_string())?;
-    Ok(format!("Asked to join {}. Waiting for an admin.", &pending.room_id[..8]))
+    Ok(format!("Asked to join {}. Waiting for an admin.", text::short(&pending.room_id, 8)))
 }
 
 fn requests(app: &App) -> String {
     if app.pending.is_empty() {
         return "No pending request.".into();
     }
-    app.pending.iter().map(|request| format!("{} ({:?})", request.name, request.kind)).collect::<Vec<_>>().join(", ")
+    app.pending.iter().map(|request| format!("{} ({:?})", text::line(&request.name), request.kind)).collect::<Vec<_>>().join(", ")
 }
 
 async fn decide(app: &mut App, approve: bool) -> Result<String, String> {
@@ -82,5 +83,5 @@ async fn decide(app: &mut App, approve: bool) -> Result<String, String> {
     result.map_err(|error| error.to_string())?;
     app.pending.remove(0);
     app.reload().await;
-    Ok(format!("{} {}.", request.name, if approve { "joined" } else { "was refused" }))
+    Ok(format!("{} {}.", text::line(&request.name), if approve { "joined" } else { "was refused" }))
 }

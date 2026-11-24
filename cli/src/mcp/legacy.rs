@@ -2,8 +2,8 @@
 
 use serde_json::{Value, json};
 
-use super::rpc::{METHOD_NOT_FOUND, RpcError};
 use super::control::Backend;
+use super::rpc::{METHOD_NOT_FOUND, RpcError};
 use super::tools;
 use super::{INSTRUCTIONS, LEGACY_VERSIONS, SERVER_NAME};
 

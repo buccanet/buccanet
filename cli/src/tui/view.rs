@@ -8,6 +8,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, List, ListItem, ListState, Paragraph, Wrap};
 
 use super::app::{App, Focus};
+use crate::text;
 
 const GREEN: Color = Color::Rgb(0, 255, 102);
 const DIM: Color = Color::Rgb(0, 130, 60);
@@ -58,13 +59,12 @@ fn member_color(app: &App, device_id: &str) -> Color {
 pub fn draw(frame: &mut Frame, app: &App) {
     let [top, main, status, input] =
         Layout::vertical([Constraint::Length(1), Constraint::Min(5), Constraint::Length(1), Constraint::Length(3)]).areas(frame.area());
-    let [rooms, messages, members] =
-        Layout::horizontal([Constraint::Length(30), Constraint::Min(30), Constraint::Length(32)]).areas(main);
+    let [rooms, messages, members] = Layout::horizontal([Constraint::Length(30), Constraint::Min(30), Constraint::Length(32)]).areas(main);
     draw_top(frame, app, top);
     draw_rooms(frame, app, rooms);
     draw_messages(frame, app, messages);
     draw_members(frame, app, members);
-    let line = Line::from(Span::styled(format!(" {}", app.status), Style::default().fg(AMBER)));
+    let line = Line::from(Span::styled(format!(" {}", text::line(&app.status)), Style::default().fg(AMBER)));
     frame.render_widget(Paragraph::new(line).style(Style::default().bg(BG)), status);
     let prompt = Paragraph::new(format!("› {}▌", app.input)).block(block("message · /help", app.focus == Focus::Input));
     frame.render_widget(prompt, input);
@@ -85,9 +85,10 @@ fn draw_rooms(frame: &mut Frame, app: &App, area: Rect) {
         .rooms
         .iter()
         .map(|room| {
-            let mine = room.members.iter().any(|member| app.local_agents.contains_key(&member.device_id) && member.kind == DeviceKind::Agent);
+            let mine =
+                room.members.iter().any(|member| app.local_agents.contains_key(&member.device_id) && member.kind == DeviceKind::Agent);
             let unread = app.unread.get(&room.room_id).copied().unwrap_or(0);
-            let mut spans = vec![Span::raw(room.title.clone().unwrap_or_else(|| room.room_id[..8].to_string()))];
+            let mut spans = vec![Span::raw(room.title.as_deref().map_or_else(|| text::short(&room.room_id, 8), text::line))];
             if mine {
                 spans.push(Span::styled(" ◆", Style::default().fg(CYAN)));
             }
@@ -106,7 +107,7 @@ fn draw_rooms(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 /// One line per line of the message: the first carries time and author, the rest are indented.
-fn message_lines<'a>(app: &App, message: &'a ChatMessage) -> Vec<Line<'a>> {
+fn message_lines(app: &App, message: &ChatMessage) -> Vec<Line<'static>> {
     let tag = kind_tag(message.author_kind);
     let color = member_color(app, &message.sender_device_id);
     let time = chrono::DateTime::parse_from_rfc3339(&message.at)
@@ -115,10 +116,11 @@ fn message_lines<'a>(app: &App, message: &'a ChatMessage) -> Vec<Line<'a>> {
     let name_style = Style::default().fg(color).add_modifier(if message.own { Modifier::BOLD } else { Modifier::empty() });
     let text_color = if message.shared { DIM } else { GREEN };
     let text_style = Style::default().fg(text_color);
-    let mut rows = message.text.lines();
+    let body = text::body(&message.text);
+    let mut rows = body.lines().map(str::to_string);
     let mut lines = vec![Line::from(vec![
         Span::styled(format!("{time} "), Style::default().fg(DIM)),
-        Span::styled(message.author_name.clone(), name_style),
+        Span::styled(text::line(&message.author_name), name_style),
         Span::styled(format!(" [{tag}] › "), Style::default().fg(DIM)),
         Span::styled(rows.next().unwrap_or_default(), text_style),
     ])];
@@ -127,7 +129,10 @@ fn message_lines<'a>(app: &App, message: &'a ChatMessage) -> Vec<Line<'a>> {
 }
 
 fn draw_messages(frame: &mut Frame, app: &App, area: Rect) {
-    let mut title = app.room().and_then(|room| room.title.clone()).unwrap_or_else(|| "no room · /new <title> or /join <link>".into());
+    let mut title = app
+        .room()
+        .and_then(|room| room.title.as_deref().map(text::line))
+        .unwrap_or_else(|| "no room · /new <title> or /join <link>".into());
     if app.scroll_back > 0 {
         title.push_str(" · scrolled back, PgDn for newer");
     }
@@ -159,7 +164,7 @@ fn draw_members(frame: &mut Frame, app: &App, area: Rect) {
             };
             Line::from(vec![
                 Span::styled(format!("[{}] ", kind_tag(member.kind)), Style::default().fg(DIM)),
-                Span::styled(member.name, Style::default().fg(color)),
+                Span::styled(text::line(&member.name), Style::default().fg(color)),
                 Span::styled(note, Style::default().fg(DIM)),
             ])
         })

@@ -420,6 +420,7 @@ dependencies = [
  "tls_codec",
  "tokio",
  "tracing",
+ "url",
  "uuid",
 ]
 

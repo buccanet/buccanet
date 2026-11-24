@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 use buccanet_sdk::{ChatMessage, Client, ClientEvent, PendingJoin, RoomInfo};
 
 use crate::profile;
+use crate::text;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Focus {
@@ -41,10 +42,7 @@ pub struct App {
 const QUIT_WINDOW: Duration = Duration::from_secs(2);
 
 fn local_agents() -> HashMap<String, String> {
-    profile::list()
-        .into_iter()
-        .filter_map(|name| profile::read_config(&name).ok().map(|config| (config.device_id, name)))
-        .collect()
+    profile::list().into_iter().filter_map(|name| profile::read_config(&name).ok().map(|config| (config.device_id, name))).collect()
 }
 
 impl App {
@@ -141,7 +139,7 @@ impl App {
                 self.reload().await;
             }
             ClientEvent::JoinRequested { request } => {
-                self.status = format!("{} asks to join. /approve to let them in, /reject to refuse.", request.name);
+                self.status = format!("{} asks to join. /approve to let them in, /reject to refuse.", text::line(&request.name));
                 self.pending.retain(|pending| pending.request_id != request.request_id);
                 self.pending.push(request);
             }
@@ -150,12 +148,12 @@ impl App {
                 self.reload().await;
             }
             ClientEvent::HistoryImported { count, shared_by, .. } => {
-                self.status = format!("{shared_by} shared {count} earlier messages.");
+                self.status = format!("{} shared {count} earlier messages.", text::line(&shared_by));
                 self.reload().await;
             }
             ClientEvent::JoinRejected { .. } => self.status = "Your join request was rejected.".into(),
             ClientEvent::Connection { live } => self.live = live,
-            ClientEvent::Error { message } => self.status = format!("error: {message}"),
+            ClientEvent::Error { message } => self.status = format!("error: {}", text::line(&message)),
         }
     }
 }

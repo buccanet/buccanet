@@ -4,6 +4,7 @@ mod commands;
 mod host;
 mod mcp;
 mod profile;
+mod text;
 mod tui;
 mod wake;
 
@@ -35,4 +36,3 @@ async fn main() {
         std::process::exit(1);
     }
 }
-

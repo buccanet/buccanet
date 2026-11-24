@@ -6,17 +6,18 @@ use buccanet_sdk::ClientEvent;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, BufReader};
 
+use super::control::{self, Backend};
 use super::events::EventHub;
 use super::rpc::{INVALID_PARAMS, Out, PARSE_ERROR, RpcError};
-use super::control::{self, Backend};
 use super::tools::ToolContext;
 use super::{legacy, modern};
-use crate::wake::claude_inbox::ClaudeInbox;
-use crate::wake::{Wake, next_batch, prompt, socket};
 use crate::commands::CommandResult;
 use crate::commands::output::kind_label;
 use crate::host::{Events, open_client};
 use crate::profile::{self, Profile, ProfileError};
+use crate::text;
+use crate::wake::claude_inbox::ClaudeInbox;
+use crate::wake::{Wake, next_batch, prompt, socket};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Era {
@@ -156,10 +157,11 @@ impl Server {
         while let Some(event) = events.recv().await {
             match event {
                 ClientEvent::Message { message } if !message.own && !message.shared => {
-                    let content = format!("{} ({}): {}", message.author_name, kind_label(message.author_kind), message.text);
+                    let name = text::line(&message.author_name);
+                    let content = format!("{name} ({}): {}", kind_label(message.author_kind), text::indented(&message.text));
                     let meta = json!({
                         "room_id": message.room_id, "seq": message.seq.to_string(),
-                        "from": message.author_name, "from_kind": kind_label(message.author_kind),
+                        "from": name, "from_kind": kind_label(message.author_kind),
                     });
                     self.channel(content, meta);
                     self.hub.publish_message(&message);
@@ -176,7 +178,12 @@ impl Server {
                     self.wake(&socket, Wake::joined(&room.room_id, room.title.clone())).await;
                 }
                 ClientEvent::JoinRequested { request } => {
-                    let detail = format!("{} ({}) asks to join. Request id {}.", request.name, kind_label(request.kind), request.request_id);
+                    let detail = format!(
+                        "{} ({}) asks to join. Request id {}.",
+                        text::line(&request.name),
+                        kind_label(request.kind),
+                        text::line(&request.request_id)
+                    );
                     self.channel(detail.clone(), json!({ "room_id": request.room_id, "event": "join_requested" }));
                     self.hub.publish_room(&request.room_id, "join_requested", &detail);
                 }

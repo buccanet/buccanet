@@ -49,7 +49,12 @@ pub struct BuccanetClient {
 impl BuccanetClient {
     /// Creates a device on the relay; its keys are generated here and never leave the app.
     #[uniffi::constructor]
-    pub async fn register(relay_url: String, name: String, kind: DeviceKind, host: Arc<dyn BuccanetHost>) -> Result<Arc<Self>, BuccanetError> {
+    pub async fn register(
+        relay_url: String,
+        name: String,
+        kind: DeviceKind,
+        host: Arc<dyn BuccanetHost>,
+    ) -> Result<Arc<Self>, BuccanetError> {
         let client = sdk::Client::register(&relay_url, &name, kind.into(), Arc::new(HostBridge(host))).await?;
         Ok(Arc::new(Self { client }))
     }

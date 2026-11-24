@@ -16,8 +16,10 @@ mod rooms;
 mod sse;
 mod state;
 mod time;
+mod trust;
 
-pub use client::{Client, ClientHost, JoinPending};
 pub use buccanet_protocol::api::{DeviceKind, RoomPolicy};
+pub use client::{Client, ClientHost, JoinPending};
 pub use error::SdkError;
 pub use events::{ChatMessage, ClientEvent, MemberInfo, PendingJoin, RoomInfo};
+pub use state::Owner;

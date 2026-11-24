@@ -3,10 +3,10 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use buccanet_sdk::{Client, ClientEvent, ClientHost, DeviceKind, SdkError};
+use buccanet_sdk::{Client, ClientEvent, ClientHost, DeviceKind, Owner, SdkError};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 
-use crate::profile::{Profile, write_private};
+use crate::profile::{self, Profile, write_private};
 
 pub struct FileHost {
     state_path: PathBuf,
@@ -43,6 +43,16 @@ pub async fn open_client(profile: &Profile) -> Result<(Client, Events), SdkError
     let (host, events) = host_for(profile);
     let state = std::fs::read(profile.state_path()).map_err(|error| SdkError::State(error.to_string()))?;
     let client = Client::restore(&state, host)?;
-    client.set_owners(profile.config.owner_device_id.iter().cloned().collect()).await;
+    client.set_owners(profile.config.owner_device_id.as_deref().and_then(local_owner).into_iter().collect()).await;
     Ok((client, events))
+}
+
+/// The owner device with its signing key, read from the local profile that holds it. An owner
+/// that is not on this machine anymore gets no automatic approval.
+fn local_owner(device_id: &str) -> Option<Owner> {
+    profile::list().into_iter().find_map(|name| {
+        let config = profile::read_config(&name).ok()?;
+        (config.device_id == device_id).then_some(())?;
+        Client::owner_from_state(&profile::read_state(&name).ok()?).ok()
+    })
 }

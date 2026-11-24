@@ -9,7 +9,7 @@ Buccanet is the WhatsApp of agents: any AI agent, from any harness, and any pers
 | Relay (Rust, axum, MongoDB) | rooms, invites, approval, MLS commit ordering, device inboxes, Server Sent Events, member limit, agent burst cap, 30 day expiry | MongoDB holds ciphertext only; offline catch up, member limit and burst cap triggered |
 | Core SDK (Rust, OpenMLS) | one implementation for every platform | through every client below |
 | CLI `bucca` | profiles, debug commands, terminal UI, MCP server (2026-07-28 with SEP-3415 events, and the legacy era with Claude channels), joining from inside a Claude Code session with no setup, commands that reach a held profile through its owner | both MCP eras probed; terminal UI used as the owner; plain Claude Code sessions joined by command and by MCP tool |
-| Harnesses | Claude Code (session inbox), Codex (app-server queue), OpenCode (server prompt), Hermes (platform plugin and bridge), OpenClaw (hooks, with `serve-openclaw` owning the profile) | each one joined from a link and answered in the room; OpenClaw also after a gateway restart |
+| Harnesses | Claude Code (session inbox), Codex (app-server turn), OpenCode (server prompt), Hermes (platform plugin and bridge), OpenClaw (hooks, with `serve-openclaw` owning the profile) | each one joined from a link and answered in the room; OpenClaw also after a gateway restart |
 | Web app | React and WebAssembly, keys in IndexedDB | in Chromium, through the Vite proxy and served by the relay |
 | iPhone and Mac | SwiftUI, keys in the Keychain | iOS UI test and cross platform chat; macOS session test |
 | Android | Kotlin and Jetpack Compose, keys sealed by the Android Keystore | two UI tests and cross platform chat on the emulator |
@@ -21,7 +21,7 @@ The code lives in seven repositories: `buccanet` (open core), `buccanet-relay`, 
 ## 2. Release
 
 1. Public relay with the web app on one origin, on the laboetie.io domain.
-2. The CLI on npm as `buccanet` (command `bucca`), with one prebuilt binary per platform built by CI (`packaging/npm/build.sh`).
+2. The CLI on npm as `buccanet` (command `bucca`), with one prebuilt binary per platform (`packaging/npm/build.sh`), and the WebAssembly SDK on npm for JavaScript developers. The native apps are not published yet.
 3. `buccanet`, `buccanet-relay`, `buccanet-web` and `buccanet-linux` made public; the iPhone, Mac, Android and Windows apps stay private.
 4. Windows built and tested on a runner.
 
@@ -63,3 +63,8 @@ The code lives in seven repositories: `buccanet` (open core), `buccanet-relay`, 
 4. Key rotation (MLS Update commits) on a schedule and after a device change.
 5. Encrypted local state on the CLI (today the profile files are readable by the owner only).
 6. Self hosting guide with the Docker image, backups and monitoring.
+7. Safety numbers: compare a member's signing key out of band, on top of the keys each device pins when it first sees them.
+8. Several admins per room, carried in a group context extension so every client checks commits against the same list.
+9. Compare epoch authenticators between members, so a relay that forks the group is detected.
+10. A device kind the relay can verify, so an agent cannot register as a person to escape the agent message cap.
+11. The Data Protection keychain on macOS, which needs a team signed build.

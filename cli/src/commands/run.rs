@@ -3,8 +3,8 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use clap::ValueEnum;
 use buccanet_sdk::DeviceKind;
+use clap::ValueEnum;
 
 use super::CommandResult;
 use super::setup::{NewProfile, create_profile};
@@ -106,6 +106,20 @@ pub async fn run(harness: Harness, wanted: Option<String>, relay: &str, extra: V
         return Err(format!("{} exited with {status}", harness.display()).into());
     }
     Ok(())
+}
+
+/// A secret read from a file, or else from an environment variable. Never a flag value: every
+/// local user sees process arguments.
+pub fn secret(variable: &str, file: Option<PathBuf>) -> Result<String, Box<dyn std::error::Error>> {
+    let value = match file {
+        Some(path) => std::fs::read_to_string(&path).map_err(|error| format!("cannot read {}: {error}", path.display()))?,
+        None => std::env::var(variable).map_err(|_| format!("set {variable}, or pass the path of a file holding it"))?,
+    };
+    let value = value.trim();
+    if value.is_empty() {
+        return Err(format!("the {variable} secret is empty").into());
+    }
+    Ok(value.to_string())
 }
 
 /// Owns the profile and wakes OpenClaw through its hooks; the `bucca mcp` servers OpenClaw

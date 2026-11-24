@@ -13,10 +13,11 @@ use crate::error::SdkError;
 use crate::events::{ChatMessage, ClientEvent, RoomInfo};
 use crate::mls::MlsEngine;
 use crate::processing::{Action, apply};
-use crate::relay::RelayClient;
+use crate::relay::{RelayClient, check_relay_url};
 use crate::sse::SseBuffer;
-use crate::state::{Identity, Persisted, RoomState};
+use crate::state::{Identity, Owner, Persisted, RoomState};
 use crate::time::sleep_ms;
+use crate::trust::pin_new;
 
 const RECONNECT_MIN_MS: u64 = 1_000;
 const RECONNECT_MAX_MS: u64 = 15_000;
@@ -45,6 +46,19 @@ impl Inner {
     pub fn room_mut(&mut self, room_id: &str) -> Result<&mut RoomState, SdkError> {
         self.state.rooms.get_mut(room_id).ok_or_else(|| SdkError::UnknownRoom(room_id.into()))
     }
+
+    /// Brings state saved before rooms tracked their admin up to date: the admin of a room is
+    /// its creator, the first leaf of the tree, and every device in a tree gets pinned.
+    fn adopt_trees(&mut self) -> Result<(), SdkError> {
+        for room in self.state.rooms.values_mut() {
+            let leaves = self.mls.members(&room.group_id)?;
+            if room.admin_id.is_empty() {
+                room.admin_id = leaves.first().map(|leaf| leaf.device_id.clone()).unwrap_or_default();
+            }
+            pin_new(&mut self.state.pins, &leaves);
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone)]
@@ -65,6 +79,7 @@ pub struct JoinPending {
 impl Client {
     /// Creates a new device on the relay. Its keys never leave this process.
     pub async fn register(relay_url: &str, name: &str, kind: DeviceKind, host: Arc<dyn ClientHost>) -> Result<Self, SdkError> {
+        check_relay_url(relay_url)?;
         let signer = MlsEngine::new_signer()?;
         let anonymous = RelayClient::new(relay_url, None);
         let body = RegisterDevice { public_key: signer.public().to_vec(), kind, name: name.to_string() };
@@ -78,7 +93,9 @@ impl Client {
             relay_url: relay_url.trim_end_matches('/').to_string(),
             public_key: mls.public_key(),
         };
-        let client = Self::assemble(Inner { state: Persisted::new(identity), mls }, host);
+        let mut state = Persisted::new(identity);
+        pin_new(&mut state.pins, &[crate::mls::Leaf { device_id: state.identity.device_id.clone(), signature_key: mls.public_key() }]);
+        let client = Self::assemble(Inner { state, mls }, host);
         client.persist(&*client.inner.lock().await);
         Ok(client)
     }
@@ -86,8 +103,11 @@ impl Client {
     /// Reopens a device from the blob last given to [`ClientHost::save_state`].
     pub fn restore(state: &[u8], host: Arc<dyn ClientHost>) -> Result<Self, SdkError> {
         let (persisted, snapshot) = Persisted::decode(state)?;
+        check_relay_url(&persisted.identity.relay_url)?;
         let mls = MlsEngine::restore(&persisted.identity.device_id, &persisted.identity.public_key, snapshot)?;
-        Ok(Self::assemble(Inner { state: persisted, mls }, host))
+        let mut inner = Inner { state: persisted, mls };
+        inner.adopt_trees()?;
+        Ok(Self::assemble(inner, host))
     }
 
     fn assemble(inner: Inner, host: Arc<dyn ClientHost>) -> Self {
@@ -124,8 +144,15 @@ impl Client {
         inner.state.encode(inner.mls.snapshot()?)
     }
 
-    /// Devices whose join requests this device approves without asking, such as its owner.
-    pub async fn set_owners(&self, owners: Vec<String>) {
+    /// The device a saved state blob belongs to, as an owner entry for another device.
+    pub fn owner_from_state(state: &[u8]) -> Result<Owner, SdkError> {
+        let (persisted, _) = Persisted::decode(state)?;
+        Ok(Owner { device_id: persisted.identity.device_id, public_key: persisted.identity.public_key })
+    }
+
+    /// Devices whose join requests this device approves without asking, such as its owner,
+    /// as long as the request carries the owner's key.
+    pub async fn set_owners(&self, owners: Vec<Owner>) {
         let mut inner = self.inner.lock().await;
         inner.state.auto_approve.owners = owners;
         self.persist(&inner);
@@ -215,7 +242,8 @@ impl Client {
         let mut body = response.bytes_stream();
         let mut buffer = SseBuffer::default();
         while let Some(chunk) = body.next().await {
-            for record in buffer.push(&chunk?) {
+            let records = buffer.push(&chunk?).map_err(|_| SdkError::State("the relay sent an oversized stream record".into()))?;
+            for record in records {
                 let event: InboxEvent = serde_json::from_str(&record.data).map_err(|error| SdkError::State(error.to_string()))?;
                 self.ingest(vec![event]).await;
             }

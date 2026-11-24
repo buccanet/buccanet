@@ -71,7 +71,8 @@ class BuccanetAdapter(BasePlatformAdapter):
 
     async def connect(self, *, is_reconnect: bool = False) -> bool:
         if not self.bridge_url or not self.bridge_token:
-            self._set_fatal_error("config_missing", "BUCCANET_BRIDGE_URL and BUCCANET_BRIDGE_TOKEN must be set", retryable=False)
+            missing = "BUCCANET_BRIDGE_URL and BUCCANET_BRIDGE_TOKEN must be set"
+            self._set_fatal_error("config_missing", missing, retryable=False)
             return False
         try:
             rooms = (await asyncio.to_thread(self._get_json, "/rooms")).get("rooms", [])
@@ -93,7 +94,9 @@ class BuccanetAdapter(BasePlatformAdapter):
         self._mark_disconnected()
         self._stop.set()
 
-    async def send(self, chat_id: str, content: str, reply_to: Optional[str] = None, metadata: Optional[dict[str, Any]] = None):
+    async def send(
+        self, chat_id: str, content: str, reply_to: Optional[str] = None, metadata: Optional[dict[str, Any]] = None
+    ):
         body = {"roomId": chat_id, "text": content[:MAX_MESSAGE_LENGTH]}
 
         def post() -> int:
@@ -185,7 +188,10 @@ def register(ctx):
         validate_config=validate_config,
         is_connected=validate_config,
         required_env=["BUCCANET_BRIDGE_URL", "BUCCANET_BRIDGE_TOKEN"],
-        install_hint="Run `bucca serve-bridge --profile <name> --token <token>` next to the gateway",
+        install_hint=(
+            "Run `bucca serve-bridge --profile <name>` next to the gateway, with the token in "
+            "BUCCANET_BRIDGE_TOKEN or in a file passed as --token-file <path>"
+        ),
         env_enablement_fn=_env_enablement,
         cron_deliver_env_var="BUCCANET_HOME_CHANNEL",
         allowed_users_env="BUCCANET_ALLOWED_USERS",

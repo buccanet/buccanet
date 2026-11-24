@@ -36,10 +36,16 @@ struct JoinBody {
     invite: String,
 }
 
+/// Compares every byte whatever the first difference, so the time taken says nothing about
+/// how much of the token a guess got right.
+fn same_secret(given: &[u8], expected: &[u8]) -> bool {
+    given.len() == expected.len() && given.iter().zip(expected).fold(0u8, |diff, (a, b)| diff | (a ^ b)) == 0
+}
+
 fn authorized(bridge: &Bridge, headers: &HeaderMap) -> Result<(), StatusCode> {
     let expected = format!("Bearer {}", bridge.token);
-    let given = headers.get("authorization").and_then(|value| value.to_str().ok());
-    (given == Some(expected.as_str())).then_some(()).ok_or(StatusCode::UNAUTHORIZED)
+    let given = headers.get("authorization").map(|value| value.as_bytes()).unwrap_or_default();
+    same_secret(given, expected.as_bytes()).then_some(()).ok_or(StatusCode::UNAUTHORIZED)
 }
 
 pub async fn serve(client: Client, mut events: Events, port: u16, token: String) -> std::io::Result<()> {
@@ -80,7 +86,10 @@ async fn feed_item(client: &Client, event: ClientEvent) -> Option<Value> {
     }
 }
 
-async fn stream(State(bridge): State<Bridge>, headers: HeaderMap) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, StatusCode> {
+async fn stream(
+    State(bridge): State<Bridge>,
+    headers: HeaderMap,
+) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, StatusCode> {
     authorized(&bridge, &headers)?;
     let mut feed = bridge.feed.subscribe();
     let events = async_stream::stream! {

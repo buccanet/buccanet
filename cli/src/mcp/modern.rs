@@ -2,9 +2,9 @@
 
 use serde_json::{Value, json};
 
+use super::control::Backend;
 use super::events::{self, EventHub};
 use super::rpc::{INVALID_PARAMS, METHOD_NOT_FOUND, Out, RpcError, UNSUPPORTED_VERSION};
-use super::control::Backend;
 use super::tools;
 use super::{INSTRUCTIONS, MODERN_VERSION, SERVER_NAME};
 
@@ -42,7 +42,14 @@ fn discover() -> Value {
 
 /// Answers one modern request. `events/stream` and `subscriptions/listen` stay open: they
 /// answer nothing now and deliver notifications until the client cancels.
-pub async fn handle(backend: &Backend, hub: &EventHub, out: &Out, id: &Value, method: &str, params: &Value) -> Result<Option<Value>, RpcError> {
+pub async fn handle(
+    backend: &Backend,
+    hub: &EventHub,
+    out: &Out,
+    id: &Value,
+    method: &str,
+    params: &Value,
+) -> Result<Option<Value>, RpcError> {
     check_version(params)?;
     let result = match method {
         "server/discover" => discover(),

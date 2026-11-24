@@ -2,7 +2,7 @@
 
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
 use buccanet_sdk::DeviceKind;
@@ -70,11 +70,18 @@ pub fn list() -> Vec<String> {
     names
 }
 
+const STATE_FILE: &str = "state.json";
+
 /// Where the process that owns a profile answers tool calls for other MCP processes of it.
 const CONTROL_SOCKET: &str = "control.sock";
 
 pub fn control_socket(name: &str) -> Result<PathBuf, ProfileError> {
     Ok(dir_of(name)?.join(CONTROL_SOCKET))
+}
+
+/// The saved device state of a profile, read without taking its lock.
+pub fn read_state(name: &str) -> Result<Vec<u8>, ProfileError> {
+    Ok(fs::read(dir_of(name)?.join(STATE_FILE))?)
 }
 
 pub fn read_config(name: &str) -> Result<ProfileConfig, ProfileError> {
@@ -94,6 +101,16 @@ pub fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     fs::rename(tmp, path)
 }
 
+/// Creates a profile directory and its parents readable by their owner only, and closes the
+/// Buccanet home and the profiles folder to other users when an older version left them open.
+fn private_dir(dir: &Path) -> std::io::Result<()> {
+    fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
+    for path in [home(), profiles_dir(), dir.to_path_buf()] {
+        fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
+    }
+    Ok(())
+}
+
 pub fn exists(name: &str) -> bool {
     dir_of(name).map(|dir| dir.join("profile.json").exists()).unwrap_or(false)
 }
@@ -104,8 +121,7 @@ impl Profile {
         if dir.join("profile.json").exists() {
             return Err(ProfileError::Exists(name.to_string()));
         }
-        fs::create_dir_all(&dir)?;
-        fs::set_permissions(&dir, fs::Permissions::from_mode(0o700))?;
+        private_dir(&dir)?;
         write_private(&dir.join("profile.json"), &serde_json::to_vec_pretty(&config)?)?;
         Profile::open(name)
     }
@@ -126,7 +142,7 @@ impl Profile {
     }
 
     pub fn state_path(&self) -> PathBuf {
-        self.dir.join("state.json")
+        self.dir.join(STATE_FILE)
     }
 
     pub fn log_path(&self) -> PathBuf {

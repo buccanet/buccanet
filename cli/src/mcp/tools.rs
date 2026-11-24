@@ -6,6 +6,11 @@ use serde_json::{Value, json};
 use super::rpc::{INVALID_PARAMS, RpcError};
 use crate::commands::output::kind_label;
 use crate::profile::ProfileConfig;
+use crate::text;
+
+/// The room policy bounds the relay accepts.
+const MAX_MEMBERS: std::ops::RangeInclusive<u64> = 2..=1000;
+const AGENT_BURST: std::ops::RangeInclusive<u64> = 1..=10_000;
 
 pub struct ToolContext {
     pub client: Client,
@@ -53,7 +58,7 @@ pub fn definitions() -> Vec<Value> {
                 "title": { "type": "string" },
                 "approval": { "type": "boolean", "description": "Joins wait for an admin decision (default true)" },
                 "maxMembers": { "type": "integer", "minimum": 2, "maximum": 1000 },
-                "agentBurst": { "type": "integer", "minimum": 1, "description": "Consecutive agent messages allowed before a person speaks" },
+                "agentBurst": { "type": "integer", "minimum": 1, "maximum": 10_000, "description": "Consecutive agent messages allowed before a person speaks" },
             }),
             &[],
         ),
@@ -82,7 +87,12 @@ pub fn definitions() -> Vec<Value> {
             json!({ "roomId": room, "requestId": { "type": "string" } }),
             &["roomId", "requestId"],
         ),
-        tool("reject_member", "Refuse a pending join request.", json!({ "roomId": room, "requestId": { "type": "string" } }), &["roomId", "requestId"]),
+        tool(
+            "reject_member",
+            "Refuse a pending join request.",
+            json!({ "roomId": room, "requestId": { "type": "string" } }),
+            &["roomId", "requestId"],
+        ),
         tool("list_contacts", "Everyone you share a room with.", json!({}), &[]),
     ]
 }
@@ -93,7 +103,13 @@ fn arg<'a>(args: &'a Value, key: &str) -> Result<&'a str, RpcError> {
 
 pub fn format_message(message: &ChatMessage) -> String {
     let shared = if message.shared { " (shared history)" } else { "" };
-    format!("#{} {} ({}){shared}: {}", message.seq, message.author_name, kind_label(message.author_kind), message.text)
+    format!(
+        "#{} {} ({}){shared}: {}",
+        message.seq,
+        text::line(&message.author_name),
+        kind_label(message.author_kind),
+        text::indented(&message.text)
+    )
 }
 
 async fn room_id(ctx: &ToolContext, args: &Value) -> Result<Result<String, String>, RpcError> {
@@ -153,27 +169,46 @@ async fn list_rooms(ctx: &ToolContext) -> ToolOutput {
     let lines: Vec<String> = rooms
         .iter()
         .map(|room| {
-            let members: Vec<String> = room.members.iter().map(|member| format!("{} ({})", member.name, kind_label(member.kind))).collect();
-            format!("{} \"{}\" admin={} members: {}", room.room_id, room.title.as_deref().unwrap_or("untitled"), room.admin, members.join(", "))
+            let members: Vec<String> =
+                room.members.iter().map(|member| format!("{} ({})", text::line(&member.name), kind_label(member.kind))).collect();
+            let title = room.title.as_deref().map_or_else(|| "untitled".to_string(), text::line);
+            format!("{} {} admin={} members: {}", room.room_id, Value::from(title), room.admin, members.join(", "))
         })
         .collect();
     ToolOutput::ok(lines.join("\n"), json!({ "rooms": rooms }))
 }
 
+/// An optional integer argument inside the bounds the relay accepts.
+fn bounded(args: &Value, key: &str, range: std::ops::RangeInclusive<u64>, default: u32) -> Result<u32, String> {
+    let Some(value) = args.get(key) else { return Ok(default) };
+    let out_of_range = || format!("{key} must be an integer from {} to {}.", range.start(), range.end());
+    let number = value.as_u64().filter(|number| range.contains(number)).ok_or_else(out_of_range)?;
+    u32::try_from(number).map_err(|_| out_of_range())
+}
+
+fn room_policy(args: &Value) -> Result<RoomPolicy, String> {
+    let defaults = RoomPolicy::default();
+    Ok(RoomPolicy {
+        approval: args.get("approval").and_then(Value::as_bool).unwrap_or(defaults.approval),
+        max_members: bounded(args, "maxMembers", MAX_MEMBERS, defaults.max_members)?,
+        agent_burst: bounded(args, "agentBurst", AGENT_BURST, defaults.agent_burst)?,
+    })
+}
+
 async fn create_room(ctx: &ToolContext, args: &Value) -> ToolOutput {
     let title = args.get("title").and_then(Value::as_str).map(str::to_string);
-    let defaults = RoomPolicy::default();
-    let policy = RoomPolicy {
-        approval: args.get("approval").and_then(Value::as_bool).unwrap_or(defaults.approval),
-        max_members: args.get("maxMembers").and_then(Value::as_u64).map_or(defaults.max_members, |value| value as u32),
-        agent_burst: args.get("agentBurst").and_then(Value::as_u64).map_or(defaults.agent_burst, |value| value as u32),
+    let policy = match room_policy(args) {
+        Ok(policy) => policy,
+        Err(message) => return ToolOutput::failed(message),
     };
     let room = match ctx.client.create_room(title, policy).await {
         Ok(room) => room,
         Err(error) => return ToolOutput::failed(error.to_string()),
     };
     match ctx.client.create_invite(&room.room_id).await {
-        Ok(link) => ToolOutput::ok(format!("Room {} created. Invite link: {link}", room.room_id), json!({ "roomId": room.room_id, "invite": link })),
+        Ok(link) => {
+            ToolOutput::ok(format!("Room {} created. Invite link: {link}", room.room_id), json!({ "roomId": room.room_id, "invite": link }))
+        }
         Err(error) => ToolOutput::failed(error.to_string()),
     }
 }
@@ -199,7 +234,11 @@ async fn read_messages(ctx: &ToolContext, room: String, after: u64, limit: usize
     match ctx.client.messages(&room, after).await {
         Ok(messages) => {
             let recent: Vec<ChatMessage> = messages.into_iter().rev().take(limit).rev().collect();
-            let text = if recent.is_empty() { "No messages.".to_string() } else { recent.iter().map(format_message).collect::<Vec<_>>().join("\n") };
+            let text = if recent.is_empty() {
+                "No messages.".to_string()
+            } else {
+                recent.iter().map(format_message).collect::<Vec<_>>().join("\n")
+            };
             ToolOutput::ok(text, json!({ "roomId": room, "messages": recent }))
         }
         Err(error) => ToolOutput::failed(error.to_string()),
@@ -217,8 +256,10 @@ async fn list_requests(ctx: &ToolContext, room: String) -> ToolOutput {
     match ctx.client.pending_requests(&room).await {
         Ok(requests) if requests.is_empty() => ToolOutput::ok("No pending request.", json!({ "requests": [] })),
         Ok(requests) => {
-            let lines: Vec<String> =
-                requests.iter().map(|request| format!("{} {} ({})", request.request_id, request.name, kind_label(request.kind))).collect();
+            let lines: Vec<String> = requests
+                .iter()
+                .map(|request| format!("{} {} ({})", text::line(&request.request_id), text::line(&request.name), kind_label(request.kind)))
+                .collect();
             ToolOutput::ok(lines.join("\n"), json!({ "requests": requests }))
         }
         Err(error) => ToolOutput::failed(error.to_string()),
@@ -227,7 +268,9 @@ async fn list_requests(ctx: &ToolContext, room: String) -> ToolOutput {
 
 async fn decide(ctx: &ToolContext, room: String, request: String, approve: bool) -> ToolOutput {
     if approve && !ctx.config.allow_agent_approvals {
-        return ToolOutput::failed("Your owner has not enabled agent approvals. Ask them to approve from the Buccanet app or `bucca approve`.");
+        return ToolOutput::failed(
+            "Your owner has not enabled agent approvals. Ask them to approve from the Buccanet app or `bucca approve`.",
+        );
     }
     let result = if approve { ctx.client.approve(&room, &request).await } else { ctx.client.reject(&room, &request).await };
     match result {
@@ -246,6 +289,9 @@ async fn list_contacts(ctx: &ToolContext) -> ToolOutput {
             }
         }
     }
-    let lines: Vec<String> = contacts.iter().map(|contact| format!("{} ({}) {}", contact.name, kind_label(contact.kind), contact.device_id)).collect();
+    let lines: Vec<String> = contacts
+        .iter()
+        .map(|contact| format!("{} ({}) {}", text::line(&contact.name), kind_label(contact.kind), contact.device_id))
+        .collect();
     ToolOutput::ok(if lines.is_empty() { "No contacts yet.".to_string() } else { lines.join("\n") }, json!({ "contacts": contacts }))
 }

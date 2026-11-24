@@ -1,6 +1,6 @@
 //! Creating rooms, invites, joining, and the admin side of membership.
 
-use buccanet_protocol::api::{Approve, CreateRoom, InvitePreview, RemoveMember, RoomPolicy, RoomView};
+use buccanet_protocol::api::{Approve, CreateRoom, InvitePreview, PendingRequest, RemoveMember, RoomPolicy, RoomView};
 use buccanet_protocol::envelope::Envelope;
 use rand::RngCore;
 
@@ -8,8 +8,11 @@ use crate::client::{Client, JoinPending};
 use crate::error::SdkError;
 use crate::events::{ClientEvent, MemberInfo, PendingJoin, RoomInfo};
 use crate::history::build_share;
+use crate::mls::ExpectedJoiner;
+use crate::processing::reconcile;
 use crate::relay::invite_token;
 use crate::state::RoomState;
+use crate::trust::{pin_new, pinned_key};
 
 const COMMIT_ATTEMPTS: usize = 3;
 
@@ -40,6 +43,7 @@ impl Client {
                 messages: Vec::new(),
                 pending: Vec::new(),
                 history_imported: true,
+                admin_id: inner.state.identity.device_id.clone(),
             };
             let info = room.info();
             inner.state.rooms.insert(view.room_id, room);
@@ -61,16 +65,18 @@ impl Client {
         self.relay.preview(&invite_token(link)?).await
     }
 
-    /// Asks to join; the Welcome arrives in the inbox once an admin approves.
+    /// Asks to join; the Welcome arrives in the inbox once an admin approves. The state stays
+    /// locked until the request is recorded, so an immediate Welcome finds it.
     pub async fn join(&self, link: &str) -> Result<JoinPending, SdkError> {
         let token = invite_token(link)?;
-        let key_package = {
-            let inner = self.inner.lock().await;
-            let key_package = inner.mls.key_package()?;
-            self.persist(&inner);
-            key_package
-        };
+        let mut inner = self.inner.lock().await;
+        let key_package = inner.mls.key_package()?;
+        self.persist(&inner);
         let requested = self.relay.request_join(&token, key_package).await?;
+        if !inner.state.pending_joins.contains(&requested.room_id) {
+            inner.state.pending_joins.push(requested.room_id.clone());
+        }
+        self.persist(&inner);
         Ok(JoinPending { room_id: requested.room_id, request_id: requested.request_id })
     }
 
@@ -100,7 +106,7 @@ impl Client {
             .ok_or_else(|| SdkError::Invalid(format!("request {request_id} is not pending")))?;
         let mut attempt = 1;
         loop {
-            match self.commit_add(room_id, request_id, &request.key_package).await {
+            match self.commit_add(room_id, &request).await {
                 Err(error) if error.is_stale_epoch() && attempt < COMMIT_ATTEMPTS => {
                     attempt += 1;
                     self.sync().await?;
@@ -111,13 +117,22 @@ impl Client {
         self.share_history(room_id).await
     }
 
-    async fn commit_add(&self, room_id: &str, request_id: &str, key_package: &[u8]) -> Result<(), SdkError> {
+    /// Adds the requester's key package, which must carry the requester's device id and, for
+    /// a device seen before or an owner, the key known for it.
+    async fn commit_add(&self, room_id: &str, request: &PendingRequest) -> Result<(), SdkError> {
+        let request_id = request.request_id.as_str();
         let mut inner = self.inner.lock().await;
         let group_id = inner.room(room_id)?.group_id.clone();
-        let (commit, welcome) = inner.mls.add_member(&group_id, key_package)?;
+        let owner_key =
+            inner.state.auto_approve.owners.iter().find(|owner| owner.device_id == request.device_id).map(|owner| owner.public_key.clone());
+        let pinned = owner_key.or_else(|| pinned_key(&inner.state.pins, &request.device_id));
+        let expected = ExpectedJoiner { device_id: &request.device_id, pinned_key: pinned.as_deref() };
+        let (commit, welcome) = inner.mls.add_member(&group_id, &request.key_package, expected)?;
         match self.relay.approve(room_id, request_id, &Approve { commit, welcome }).await {
             Ok(accepted) => {
                 inner.mls.merge_pending(&group_id)?;
+                let leaves = inner.mls.members(&group_id)?;
+                pin_new(&mut inner.state.pins, &leaves);
                 let room = inner.room_mut(room_id)?;
                 room.last_seq = room.last_seq.max(accepted.seq);
                 room.pending.retain(|pending| pending.request_id != request_id);
@@ -172,7 +187,7 @@ impl Client {
                 inner.mls.merge_pending(&group_id)?;
                 let room = inner.room_mut(room_id)?;
                 room.last_seq = room.last_seq.max(accepted.seq);
-                room.members.retain(|member| member.device_id != device_id);
+                reconcile(&mut inner, room_id, &[]);
                 self.persist(&inner);
                 Ok(())
             }
@@ -183,17 +198,21 @@ impl Client {
         }
     }
 
-    /// Reloads member names and roles from the relay.
+    /// Reloads member names from the relay. Who is in the room, who administers it and the
+    /// policy of a room this device administers stay what the MLS tree and this device say.
     pub async fn refresh_room(&self, room_id: &str) -> Result<RoomInfo, SdkError> {
         let view = self.relay.room(room_id).await?;
         let info = {
             let mut inner = self.inner.lock().await;
-            let me = inner.state.identity.device_id.clone();
             let room = inner.room_mut(room_id)?;
-            room.members = members_of(&view);
-            room.admin = view.members.iter().any(|member| member.device_id == me && member.admin);
-            room.policy = view.policy;
-            let info = room.info();
+            if room.group_id != view.group_id {
+                return Err(SdkError::Invalid(format!("the relay maps room {room_id} to another MLS group")));
+            }
+            if !room.admin {
+                room.policy = view.policy;
+            }
+            reconcile(&mut inner, room_id, &members_of(&view));
+            let info = inner.room(room_id)?.info();
             self.persist(&inner);
             info
         };

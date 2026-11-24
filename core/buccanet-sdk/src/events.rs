@@ -12,6 +12,14 @@ pub struct MemberInfo {
     pub admin: bool,
 }
 
+impl MemberInfo {
+    /// A device in the MLS tree that the relay never introduced.
+    pub fn unverified(device_id: &str) -> Self {
+        let short: String = device_id.chars().take(8).collect();
+        Self { device_id: device_id.to_string(), name: format!("Unverified device {short}"), kind: DeviceKind::Agent, admin: false }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RoomInfo {

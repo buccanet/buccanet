@@ -52,7 +52,13 @@ pub struct BuccanetClient {
 #[wasm_bindgen]
 impl BuccanetClient {
     /// Creates a device on the relay; its keys stay in this page.
-    pub async fn register(relay_url: String, name: String, device_kind: String, on_event: Function, on_state: Function) -> Result<BuccanetClient, JsError> {
+    pub async fn register(
+        relay_url: String,
+        name: String,
+        device_kind: String,
+        on_event: Function,
+        on_state: Function,
+    ) -> Result<BuccanetClient, JsError> {
         let host = Arc::new(JsHost { on_event, on_state });
         let client = Client::register(&relay_url, &name, kind(&device_kind)?, host).await.map_err(js_error)?;
         Ok(BuccanetClient { client })

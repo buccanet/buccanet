@@ -1,5 +1,6 @@
 //! Codex wakes through its app-server: the TUI attaches to an app-server we start, and each
-//! batch of wakes is queued on the TUI's thread with `codex queue --resume`.
+//! batch of wakes starts a turn on the TUI's thread (or joins the running one) through the
+//! app-server's own `turn/start`, so the prompt never shows in a process list.
 
 use std::path::{Path, PathBuf};
 use std::process::ExitStatus;
@@ -19,14 +20,27 @@ fn remote(sock: &Path) -> String {
     format!("unix://{}", sock.display())
 }
 
+/// A TOML string: JSON string escapes are valid TOML basic string escapes.
+fn toml_string(value: &str) -> String {
+    Value::from(value).to_string()
+}
+
+/// The `-c` overrides that give the app-server the buccanet MCP server.
+fn mcp_overrides(launch: &Launch) -> [String; 3] {
+    let args = format!("[{}, {}, {}]", toml_string("mcp"), toml_string("--profile"), toml_string(&launch.profile));
+    [
+        format!("mcp_servers.buccanet.command={}", toml_string(&launch.exe)),
+        format!("mcp_servers.buccanet.args={args}"),
+        format!("mcp_servers.buccanet.env={{ BUCCANET_HOME = {} }}", toml_string(&launch.home)),
+    ]
+}
+
 pub async fn launch(launch: &Launch, extra: &[String]) -> Result<ExitStatus, Error> {
     let sock = launch.dir.join("codex.sock");
     let _ = std::fs::remove_file(&sock);
     let mut server = tokio::process::Command::new("codex")
         .args(["app-server", "--listen", &remote(&sock)])
-        .args(["-c", &format!("mcp_servers.buccanet.command=\"{}\"", launch.exe)])
-        .args(["-c", &format!("mcp_servers.buccanet.args=[\"mcp\", \"--profile\", \"{}\"]", launch.profile)])
-        .args(["-c", &format!("mcp_servers.buccanet.env={{ BUCCANET_HOME = \"{}\" }}", launch.home)])
+        .args(mcp_overrides(launch).iter().flat_map(|value| ["-c", value.as_str()]))
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .kill_on_drop(true)
@@ -56,33 +70,33 @@ async fn wait_for(sock: &PathBuf) -> Result<(), Error> {
     Err("codex app-server did not start".into())
 }
 
-/// Queues the prompt on the thread the TUI has loaded.
-async fn deliver(sock: &Path, text: &str) -> Result<(), Error> {
-    let thread = loaded_thread(sock).await?.ok_or("no Codex thread is open yet")?;
-    let status = tokio::process::Command::new("codex")
-        .args(["queue", "--thread", &thread, "--message", text, "--resume", "--remote", &remote(sock)])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .await?;
-    if !status.success() {
-        return Err(format!("codex queue exited with {status}").into());
-    }
-    Ok(())
+type Socket = tokio_tungstenite::WebSocketStream<UnixStream>;
+
+/// Sends one request and waits for its answer.
+async fn request(ws: &mut Socket, id: i64, method: &str, params: Value) -> Result<Value, Error> {
+    ws.send(Message::text(json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }).to_string())).await?;
+    response(ws, id).await
 }
 
-/// Asks the app-server (WebSocket over its unix socket) which thread is loaded.
-async fn loaded_thread(sock: &Path) -> Result<Option<String>, Error> {
+/// A WebSocket session on the app-server's unix socket, past the initialize handshake.
+async fn connect(sock: &Path) -> Result<Socket, Error> {
     let stream = UnixStream::connect(sock).await?;
     let (mut ws, _) = tokio_tungstenite::client_async("ws://localhost/", stream).await?;
-    let initialize = json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": { "clientInfo": { "name": "buccanet", "version": env!("CARGO_PKG_VERSION") } } });
-    ws.send(Message::text(initialize.to_string())).await?;
-    response(&mut ws, 1).await?;
+    request(&mut ws, 1, "initialize", json!({ "clientInfo": { "name": "buccanet", "version": env!("CARGO_PKG_VERSION") } })).await?;
     ws.send(Message::text(json!({ "jsonrpc": "2.0", "method": "initialized" }).to_string())).await?;
-    ws.send(Message::text(json!({ "jsonrpc": "2.0", "id": 2, "method": "thread/loaded/list", "params": {} }).to_string())).await?;
-    let result = response(&mut ws, 2).await?;
+    Ok(ws)
+}
+
+/// Starts a turn with the prompt on the thread the TUI has loaded; while a turn runs, the
+/// app-server adds the prompt to it.
+async fn deliver(sock: &Path, text: &str) -> Result<(), Error> {
+    let mut ws = connect(sock).await?;
+    let loaded = request(&mut ws, 2, "thread/loaded/list", json!({})).await?;
+    let thread = loaded.pointer("/data/0").and_then(Value::as_str).ok_or("no Codex thread is open yet")?.to_string();
+    let input = json!([{ "type": "text", "text": text, "text_elements": [] }]);
+    request(&mut ws, 3, "turn/start", json!({ "threadId": thread, "input": input })).await?;
     let _ = ws.close(None).await;
-    Ok(result.pointer("/data/0").and_then(Value::as_str).map(str::to_string))
+    Ok(())
 }
 
 async fn response<S>(ws: &mut S, id: i64) -> Result<Value, Error>

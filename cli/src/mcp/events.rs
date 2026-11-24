@@ -134,7 +134,11 @@ impl EventHub {
             }
             _ => (current_positions(client).await, Vec::new()),
         };
-        self.send("notifications/events/active", id, json!({ "cursor": cursor::encode(&positions), "truncated": false, "heartbeatMs": heartbeat }));
+        self.send(
+            "notifications/events/active",
+            id,
+            json!({ "cursor": cursor::encode(&positions), "truncated": false, "heartbeatMs": heartbeat }),
+        );
         let key = id.to_string();
         self.subscriptions.lock().expect("subscriptions lock").insert(key.clone(), Subscription { id: id.clone(), name, room, positions });
         for message in &replay {
@@ -172,7 +176,12 @@ impl EventHub {
             }
             let position = sub.positions.entry(message.room_id.clone()).or_insert(0);
             *position = (*position).max(message.seq);
-            let event = occurrence(MESSAGE_EVENT, format!("{}:{}", message.room_id, message.seq), message_payload(message), Some(cursor::encode(&sub.positions)));
+            let event = occurrence(
+                MESSAGE_EVENT,
+                format!("{}:{}", message.room_id, message.seq),
+                message_payload(message),
+                Some(cursor::encode(&sub.positions)),
+            );
             let mut params = event;
             params["_meta"] = json!({ SUBSCRIPTION_META: sub.id });
             self.out.notify("notifications/events/event", params);
@@ -203,7 +212,9 @@ pub async fn poll(client: &Client, params: &Value) -> Result<Value, RpcError> {
     let max = params.get("maxEvents").and_then(Value::as_u64).unwrap_or(50).clamp(1, 500) as usize;
     let Some(mut positions) = params.get("cursor").and_then(Value::as_str).and_then(cursor::decode) else {
         let now = current_positions(client).await;
-        return Ok(json!({ "events": [], "cursor": cursor::encode(&now), "truncated": false, "hasMore": false, "nextPollMs": POLL_INTERVAL_MS }));
+        return Ok(
+            json!({ "events": [], "cursor": cursor::encode(&now), "truncated": false, "hasMore": false, "nextPollMs": POLL_INTERVAL_MS }),
+        );
     };
     let missed = missed(client, &positions, room.as_deref()).await;
     let has_more = missed.len() > max;
@@ -216,5 +227,7 @@ pub async fn poll(client: &Client, params: &Value) -> Result<Value, RpcError> {
             occurrence(MESSAGE_EVENT, format!("{}:{}", message.room_id, message.seq), message_payload(&message), None)
         })
         .collect();
-    Ok(json!({ "events": events, "cursor": cursor::encode(&positions), "truncated": false, "hasMore": has_more, "nextPollMs": POLL_INTERVAL_MS }))
+    Ok(
+        json!({ "events": events, "cursor": cursor::encode(&positions), "truncated": false, "hasMore": has_more, "nextPollMs": POLL_INTERVAL_MS }),
+    )
 }

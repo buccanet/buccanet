@@ -2,14 +2,15 @@
 //! `send`, `read` and `rooms`. The first one creates the session's profile and starts the
 //! process that owns it (`wake::claude_session`); every command then goes through that process.
 
+use std::io::Read;
 use std::process::Stdio;
 use std::time::Duration;
 
 use serde_json::{Value, json};
 
 use super::run::OWNER_PROFILE;
-use super::{CommandResult, debug};
 use super::setup::{NewProfile, create_profile};
+use super::{CommandResult, debug};
 use crate::mcp::control::Backend;
 use crate::profile::{self, Profile, ProfileError};
 use crate::wake::claude_session::ClaudeSession;
@@ -36,7 +37,14 @@ async fn session_profile(session: &ClaudeSession, relay: &str) -> Result<String,
     if !profile::exists(&name) {
         let owner = profile::exists(OWNER_PROFILE).then_some(OWNER_PROFILE);
         let display = ClaudeSession::display_name();
-        create_profile(NewProfile { profile: &name, display: &display, kind: buccanet_sdk::DeviceKind::Agent, relay, owner_profile: owner }).await?;
+        create_profile(NewProfile {
+            profile: &name,
+            display: &display,
+            kind: buccanet_sdk::DeviceKind::Agent,
+            relay,
+            owner_profile: owner,
+        })
+        .await?;
     }
     Ok(name)
 }
@@ -62,7 +70,11 @@ async fn owner(session: &ClaudeSession, relay: &str) -> Result<Backend, Box<dyn 
     let deadline = tokio::time::Instant::now() + STARTUP;
     while tokio::net::UnixStream::connect(&socket).await.is_err() {
         if tokio::time::Instant::now() > deadline {
-            return Err(format!("the Buccanet session process did not start; see {}", profile::profiles_dir().join(&name).join("buccanet.log").display()).into());
+            return Err(format!(
+                "the Buccanet session process did not start; see {}",
+                profile::profiles_dir().join(&name).join("buccanet.log").display()
+            )
+            .into());
         }
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
@@ -106,6 +118,22 @@ pub async fn read_command(profile: Option<String>, relay: &str, room: &str, afte
     }
 }
 
+/// The text of `bucca send`: the argument, or stdin up to its end without the final line break.
+pub fn message_text(text: Option<String>) -> Result<String, Box<dyn std::error::Error>> {
+    let text = match text {
+        Some(text) => text,
+        None => {
+            let mut input = String::new();
+            std::io::stdin().read_to_string(&mut input)?;
+            input.strip_suffix('\n').map(str::to_string).unwrap_or(input)
+        }
+    };
+    if text.trim().is_empty() {
+        return Err("nothing to send: pass the text, or write it on stdin with bucca send <room id> <<'EOF'".into());
+    }
+    Ok(text)
+}
+
 pub async fn send_command(profile: Option<String>, relay: &str, room: &str, text: &str) -> CommandResult {
     match target(profile)? {
         Target::Profile(name) => debug::send(&name, room, text).await,
@@ -122,12 +150,12 @@ pub async fn join_command(profile: Option<String>, relay: &str, link: &str) -> C
 
 async fn join(session: &ClaudeSession, relay: &str, link: &str) -> CommandResult {
     call(session, relay, "join_room", json!({ "invite": link })).await?;
-    println!("New messages from the room will arrive in this conversation. Answer with: bucca send <room id> \"<text>\"");
+    println!(
+        "New messages from the room will arrive in this conversation. Answer with a quoted heredoc, which the shell passes on untouched:"
+    );
+    println!("bucca send <room id> <<'EOF'\n<your message>\nEOF");
     Ok(())
 }
-
-
-
 
 /// `bucca attach`: the process `owner` starts.
 pub async fn attach(name: &str) -> CommandResult {

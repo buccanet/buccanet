@@ -7,7 +7,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::SdkError;
 use crate::events::{ChatMessage, MemberInfo, PendingJoin, RoomInfo};
-use crate::mls::StorageSnapshot;
+use crate::mls::{Leaf, StorageSnapshot};
+use crate::trust::Pins;
 
 const STATE_VERSION: u32 = 1;
 /// Messages kept per room on the device for display and history sharing.
@@ -25,11 +26,21 @@ pub struct Identity {
     pub public_key: Vec<u8>,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Owner {
+    pub device_id: String,
+    /// The owner's signing key: a request with another key is not approved automatically.
+    #[serde(with = "buccanet_protocol::b64")]
+    pub public_key: Vec<u8>,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AutoApprove {
     /// Devices this device always lets in, such as the human who runs an agent.
-    pub owners: Vec<String>,
+    #[serde(default)]
+    pub owners: Vec<Owner>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -47,6 +58,10 @@ pub struct RoomState {
     pub messages: Vec<ChatMessage>,
     pub pending: Vec<PendingJoin>,
     pub history_imported: bool,
+    /// The room admin as the MLS tree shows it: this device for a room it created, else the
+    /// member whose Welcome let this device in. Only its commits and history share count.
+    #[serde(default)]
+    pub admin_id: String,
 }
 
 impl RoomState {
@@ -59,6 +74,25 @@ impl RoomState {
             admin: self.admin,
             last_seq: self.last_seq,
         }
+    }
+
+    pub fn member(&self, device_id: &str) -> Option<&MemberInfo> {
+        self.members.iter().find(|member| member.device_id == device_id)
+    }
+
+    /// Rebuilds the member list from the MLS tree. Names and kinds come from `directory` (what
+    /// the relay reports) or the previous list; a leaf nobody reported shows as unverified.
+    pub fn reconcile_members(&mut self, leaves: &[Leaf], directory: &[MemberInfo]) {
+        let members: Vec<MemberInfo> = leaves
+            .iter()
+            .map(|leaf| {
+                let known = directory.iter().chain(&self.members).find(|member| member.device_id == leaf.device_id);
+                let mut member = known.cloned().unwrap_or_else(|| MemberInfo::unverified(&leaf.device_id));
+                member.admin = leaf.device_id == self.admin_id;
+                member
+            })
+            .collect();
+        self.members = members;
     }
 
     /// Inserts in seq order, ignoring a seq already present.
@@ -83,17 +117,32 @@ pub struct Persisted {
     pub cursor: u64,
     pub rooms: BTreeMap<String, RoomState>,
     pub auto_approve: AutoApprove,
+    /// Rooms this device asked to join: a Welcome for any other room is refused.
+    #[serde(default)]
+    pub pending_joins: Vec<String>,
+    #[serde(default)]
+    pub pins: Pins,
     pub mls: Vec<(String, String)>,
 }
 
 impl Persisted {
     pub fn new(identity: Identity) -> Self {
-        Self { version: STATE_VERSION, identity, cursor: 0, rooms: BTreeMap::new(), auto_approve: AutoApprove::default(), mls: Vec::new() }
+        Self {
+            version: STATE_VERSION,
+            identity,
+            cursor: 0,
+            rooms: BTreeMap::new(),
+            auto_approve: AutoApprove::default(),
+            pending_joins: Vec::new(),
+            pins: Pins::new(),
+            mls: Vec::new(),
+        }
     }
 
     pub fn encode(&self, snapshot: StorageSnapshot) -> Result<Vec<u8>, SdkError> {
         let mut copy = self.clone();
-        copy.mls = snapshot.iter().map(|(key, value)| (buccanet_protocol::b64::encode(key), buccanet_protocol::b64::encode(value))).collect();
+        copy.mls =
+            snapshot.iter().map(|(key, value)| (buccanet_protocol::b64::encode(key), buccanet_protocol::b64::encode(value))).collect();
         serde_json::to_vec(&copy).map_err(|error| SdkError::State(error.to_string()))
     }
 
@@ -146,6 +195,7 @@ mod tests {
             messages: vec![],
             pending: vec![],
             history_imported: false,
+            admin_id: String::new(),
         };
         for seq in [3, 1, 2, 3] {
             room.store_message(message(seq));

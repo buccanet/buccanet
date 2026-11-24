@@ -10,6 +10,10 @@ pub const ENVELOPE_VERSION: u32 = 1;
 /// Upper bound of a serialized history share, so it always fits a relay request.
 pub const HISTORY_SHARE_MAX_BYTES: usize = 64 * 1024;
 pub const HISTORY_SHARE_MAX_MESSAGES: usize = 50;
+/// Longest text a message carries, in characters.
+pub const TEXT_MAX_CHARS: usize = 16_000;
+/// Longest room title, in characters.
+pub const TITLE_MAX_CHARS: usize = 100;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RawEnvelope {
@@ -72,10 +76,36 @@ pub enum EnvelopeError {
     Version(u32),
     #[error("cannot encode an unknown envelope")]
     UnknownType,
+    #[error("{0} is too long")]
+    TooLong(&'static str),
+}
+
+fn within(text: &str, max_chars: usize, what: &'static str) -> Result<(), EnvelopeError> {
+    if text.chars().count() > max_chars {
+        return Err(EnvelopeError::TooLong(what));
+    }
+    Ok(())
 }
 
 impl Envelope {
+    /// Bounds every field a member writes, on both sides of the wire.
+    fn validate(&self) -> Result<(), EnvelopeError> {
+        match self {
+            Envelope::Text { text, .. } => within(text, TEXT_MAX_CHARS, "text"),
+            Envelope::RoomMeta { title } => within(title, TITLE_MAX_CHARS, "title"),
+            Envelope::HistoryShare { title, messages, .. } => {
+                within(title.as_deref().unwrap_or_default(), TITLE_MAX_CHARS, "title")?;
+                if messages.len() > HISTORY_SHARE_MAX_MESSAGES {
+                    return Err(EnvelopeError::TooLong("history share"));
+                }
+                messages.iter().try_for_each(|message| within(&message.text, TEXT_MAX_CHARS, "text"))
+            }
+            Envelope::Unknown { .. } => Ok(()),
+        }
+    }
+
     pub fn encode(&self) -> Result<Vec<u8>, EnvelopeError> {
+        self.validate()?;
         let (kind, body) = match self {
             Envelope::Text { author, text, at } => {
                 ("text", serde_json::to_value(TextBody { author: author.clone(), text: text.clone(), at: at.clone() })?)
@@ -83,11 +113,7 @@ impl Envelope {
             Envelope::RoomMeta { title } => ("room_meta", serde_json::to_value(RoomMetaBody { title: title.clone() })?),
             Envelope::HistoryShare { shared_by, title, messages } => (
                 "history_share",
-                serde_json::to_value(HistoryBody {
-                    shared_by: shared_by.clone(),
-                    title: title.clone(),
-                    messages: messages.clone(),
-                })?,
+                serde_json::to_value(HistoryBody { shared_by: shared_by.clone(), title: title.clone(), messages: messages.clone() })?,
             ),
             Envelope::Unknown { .. } => return Err(EnvelopeError::UnknownType),
         };
@@ -100,6 +126,12 @@ impl Envelope {
         if raw.v != ENVELOPE_VERSION {
             return Err(EnvelopeError::Version(raw.v));
         }
+        let envelope = Self::from_raw(raw)?;
+        envelope.validate()?;
+        Ok(envelope)
+    }
+
+    fn from_raw(raw: RawEnvelope) -> Result<Envelope, EnvelopeError> {
         Ok(match raw.kind.as_str() {
             "text" => {
                 let body: TextBody = serde_json::from_value(raw.body)?;
@@ -127,5 +159,14 @@ mod tests {
         let future = br#"{"v":1,"type":"reaction","body":{"emoji":"+1"}}"#;
         assert_eq!(Envelope::decode(future).unwrap(), Envelope::Unknown { kind: "reaction".into() });
         assert!(Envelope::decode(br#"{"v":2,"type":"text","body":{}}"#).is_err());
+    }
+
+    #[test]
+    fn oversized_fields_are_refused() {
+        let author = Author { name: "Ada".into(), kind: DeviceKind::Agent };
+        let long = Envelope::Text { author, text: "x".repeat(TEXT_MAX_CHARS + 1), at: String::new() };
+        assert!(long.encode().is_err());
+        let raw = format!(r#"{{"v":1,"type":"room_meta","body":{{"title":"{}"}}}}"#, "t".repeat(TITLE_MAX_CHARS + 1));
+        assert!(Envelope::decode(raw.as_bytes()).is_err());
     }
 }
