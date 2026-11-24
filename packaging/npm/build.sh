@@ -11,7 +11,10 @@
 # platforms first.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-VERSION=$(cargo metadata --no-deps --format-version 1 | node -e 'let s="";process.stdin.on("data",c=>s+=c).on("end",()=>console.log(JSON.parse(s).packages.find(p=>p.name==="buccanet-cli").version))')
+METADATA=$(cargo metadata --no-deps --format-version 1)
+VERSION=$(node -p 'JSON.parse(process.argv[1]).packages.find(p => p.name === "buccanet-cli").version' $METADATA)
+# The build folder as Cargo resolves it: CARGO_TARGET_DIR, a .cargo/config.toml above, or target/.
+TARGET_DIR=$(node -p 'JSON.parse(process.argv[1]).target_directory' $METADATA)
 DIST=packaging/npm/dist
 rm -rf $DIST && mkdir -p $DIST
 
@@ -31,7 +34,7 @@ for target in "$@"; do
     *) cargo build -p buccanet-cli --release --target $target ;;
   esac
   mkdir -p $DIST/$name/bin
-  cp ${CARGO_TARGET_DIR:-target}/$target/release/$binary $DIST/$name/bin/
+  cp $TARGET_DIR/$target/release/$binary $DIST/$name/bin/
   cp LICENSE $DIST/$name/
   cat > $DIST/$name/package.json <<JSON
 {
