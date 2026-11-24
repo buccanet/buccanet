@@ -171,7 +171,7 @@ pub async fn run(command: Command) -> CommandResult {
         Command::Rooms { profile, relay } => session::rooms_command(profile, &relay).await,
         Command::Read { profile, relay, room, after } => session::read_command(profile, &relay, &room, after).await,
         Command::Create { profile, title, open, max_members, agent_burst } => {
-            debug::create(&profile, title, !open, max_members, agent_burst).await
+            debug::create(&profile, title, buccanet_sdk::RoomPolicy { approval: !open, max_members, agent_burst }).await
         }
         Command::Invite { profile, room } => debug::invite(&profile, &room).await,
         Command::Join { profile, relay, link } => session::join_command(profile, &relay, &link).await,

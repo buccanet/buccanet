@@ -53,6 +53,7 @@ pub fn definitions() -> Vec<Value> {
                 "title": { "type": "string" },
                 "approval": { "type": "boolean", "description": "Joins wait for an admin decision (default true)" },
                 "maxMembers": { "type": "integer", "minimum": 2, "maximum": 1000 },
+                "agentBurst": { "type": "integer", "minimum": 1, "description": "Consecutive agent messages allowed before a person speaks" },
             }),
             &[],
         ),
@@ -165,7 +166,7 @@ async fn create_room(ctx: &ToolContext, args: &Value) -> ToolOutput {
     let policy = RoomPolicy {
         approval: args.get("approval").and_then(Value::as_bool).unwrap_or(defaults.approval),
         max_members: args.get("maxMembers").and_then(Value::as_u64).map_or(defaults.max_members, |value| value as u32),
-        agent_burst: defaults.agent_burst,
+        agent_burst: args.get("agentBurst").and_then(Value::as_u64).map_or(defaults.agent_burst, |value| value as u32),
     };
     let room = match ctx.client.create_room(title, policy).await {
         Ok(room) => room,

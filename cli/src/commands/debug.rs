@@ -3,8 +3,8 @@
 use std::sync::Arc;
 
 use clap::ValueEnum;
-use buccanet_sdk::{Client, ClientEvent, DeviceKind, RoomPolicy};
-use serde_json::json;
+use buccanet_sdk::{ChatMessage, Client, ClientEvent, DeviceKind, RoomInfo, RoomPolicy};
+use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, BufReader};
 
 use super::CommandResult;
@@ -55,9 +55,36 @@ pub async fn resolve_room(client: &Client, room: &str) -> Result<String, Box<dyn
     }
 }
 
+/// How a command reaches its profile: it opens the profile, or the long running process that
+/// holds it (`tail`, `chat`, an MCP server, a connector) acts for it on the control socket.
+enum Access {
+    Direct(Client),
+    Owner(Backend),
+}
+
+async fn access(name: &str) -> Result<Access, Box<dyn std::error::Error>> {
+    match Profile::open(name) {
+        Ok(profile) => Ok(Access::Direct(connect(profile).await?.1)),
+        Err(ProfileError::Locked(..)) => Ok(Access::Owner(Backend::Remote(profile::control_socket(name)?))),
+        Err(error) => Err(error.into()),
+    }
+}
+
+/// Runs a tool in the owning process and returns its structured result.
+async fn through_owner(owner: &Backend, tool: &str, args: Value) -> Result<Value, Box<dyn std::error::Error>> {
+    let output = owner.call(tool, &args).await.map_err(|error| error.message)?;
+    if output.is_error {
+        return Err(output.text.into());
+    }
+    Ok(output.structured)
+}
+
 pub async fn rooms(name: &str) -> CommandResult {
-    let (_profile, client, _) = open(name).await?;
-    for room in client.rooms().await {
+    let rooms: Vec<RoomInfo> = match access(name).await? {
+        Access::Direct(client) => client.rooms().await,
+        Access::Owner(owner) => serde_json::from_value(through_owner(&owner, "list_rooms", json!({})).await?["rooms"].take())?,
+    };
+    for room in rooms {
         let members: Vec<String> = room.members.iter().map(|member| format!("{} ({})", member.name, kind_label(member.kind))).collect();
         let title = room.title.unwrap_or_else(|| "untitled".into());
         println!("{} {title}: {}", room.room_id, members.join(", "));
@@ -65,17 +92,24 @@ pub async fn rooms(name: &str) -> CommandResult {
     Ok(())
 }
 
-pub async fn create(name: &str, title: Option<String>, approval: bool, max_members: u32, agent_burst: u32) -> CommandResult {
-    let (_profile, client, _) = open(name).await?;
-    let room = client.create_room(title, RoomPolicy { approval, max_members, agent_burst }).await?;
-    println!("{}", room.room_id);
+pub async fn create(name: &str, title: Option<String>, policy: RoomPolicy) -> CommandResult {
+    let room_id = match access(name).await? {
+        Access::Direct(client) => client.create_room(title, policy).await?.room_id,
+        Access::Owner(owner) => {
+            let args = json!({ "title": title, "approval": policy.approval, "maxMembers": policy.max_members, "agentBurst": policy.agent_burst });
+            through_owner(&owner, "create_room", args).await?["roomId"].as_str().unwrap_or_default().to_string()
+        }
+    };
+    println!("{room_id}");
     Ok(())
 }
 
 pub async fn invite(name: &str, room: &str) -> CommandResult {
-    let (_profile, client, _) = open(name).await?;
-    let room = resolve_room(&client, room).await?;
-    println!("{}", client.create_invite(&room).await?);
+    let link = match access(name).await? {
+        Access::Direct(client) => client.create_invite(&resolve_room(&client, room).await?).await?,
+        Access::Owner(owner) => through_owner(&owner, "create_invite", json!({ "roomId": room })).await?["invite"].as_str().unwrap_or_default().to_string(),
+    };
+    println!("{link}");
     Ok(())
 }
 
@@ -127,33 +161,26 @@ pub async fn reject(name: &str, room: &str, request: &str) -> CommandResult {
 }
 
 pub async fn send(name: &str, room: &str, text: &str) -> CommandResult {
-    let profile = match Profile::open(name) {
-        Ok(profile) => profile,
-        Err(ProfileError::Locked(..)) => return send_through_owner(name, room, text).await,
-        Err(error) => return Err(error.into()),
+    let seq = match access(name).await? {
+        Access::Direct(client) => client.send_text(&resolve_room(&client, room).await?, text).await?.seq,
+        Access::Owner(owner) => through_owner(&owner, "send_message", json!({ "roomId": room, "text": text })).await?["seq"].as_u64().unwrap_or_default(),
     };
-    let (_profile, client, _) = connect(profile).await?;
-    let room = resolve_room(&client, room).await?;
-    let message = client.send_text(&room, text).await?;
-    println!("{}", message.seq);
+    println!("{seq}");
     Ok(())
 }
 
-/// The profile is open in a long running process (`tail`, `chat`, an MCP server): it sends.
-async fn send_through_owner(name: &str, room: &str, text: &str) -> CommandResult {
-    let owner = Backend::Remote(profile::control_socket(name)?);
-    let output = owner.call("send_message", &json!({ "roomId": room, "text": text })).await.map_err(|error| error.message)?;
-    if output.is_error {
-        return Err(output.text.into());
-    }
-    println!("{}", output.structured["seq"]);
-    Ok(())
-}
+/// Every message a profile keeps for a room.
+const READ_LIMIT: u64 = 1000;
 
 pub async fn read(name: &str, room: &str, after: u64) -> CommandResult {
-    let (_profile, client, _) = open(name).await?;
-    let room = resolve_room(&client, room).await?;
-    for message in client.messages(&room, after).await? {
+    let messages: Vec<ChatMessage> = match access(name).await? {
+        Access::Direct(client) => client.messages(&resolve_room(&client, room).await?, after).await?,
+        Access::Owner(owner) => {
+            let args = json!({ "roomId": room, "afterSeq": after, "limit": READ_LIMIT });
+            serde_json::from_value(through_owner(&owner, "read_messages", args).await?["messages"].take())?
+        }
+    };
+    for message in messages {
         print_event(&ClientEvent::Message { message });
     }
     Ok(())
