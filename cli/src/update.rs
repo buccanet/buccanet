@@ -105,7 +105,7 @@ pub async fn run() -> CommandResult {
     match install_of(&std::env::current_exe()?) {
         Install::NpmGlobal => {
             println!("Updating bucca {CURRENT} to {latest}…");
-            let status = std::process::Command::new("npm").args(["install", "--global", "buccanet@latest"]).status()?;
+            let status = std::process::Command::new("npm").args(["install", "--global", "--prefer-online", "buccanet@latest"]).status()?;
             if !status.success() {
                 return Err("npm could not update buccanet; run: npm install --global buccanet@latest".into());
             }
