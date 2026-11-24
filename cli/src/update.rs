@@ -69,6 +69,30 @@ fn now() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_secs())
 }
 
+/// The npm package that carries this machine's binary, as packaging/npm/build.sh names it.
+fn platform_package() -> String {
+    let os = match std::env::consts::OS {
+        "macos" => "darwin",
+        "windows" => "win32",
+        other => other,
+    };
+    let cpu = match std::env::consts::ARCH {
+        "aarch64" => "arm64",
+        "x86_64" => "x64",
+        other => other,
+    };
+    format!("buccanet-{os}-{cpu}")
+}
+
+/// Whether npm already serves this machine's binary for `version`: it lists a version a few
+/// minutes before it serves the download.
+async fn binary_available(version: &str) -> bool {
+    let package = platform_package();
+    let url = format!("https://registry.npmjs.org/{package}/-/{package}-{version}.tgz");
+    let Ok(client) = reqwest::Client::builder().timeout(CHECK_TIMEOUT).build() else { return false };
+    client.head(url).send().await.is_ok_and(|response| response.status().is_success())
+}
+
 async fn fetch_latest() -> Result<String, reqwest::Error> {
     let client = reqwest::Client::builder().timeout(CHECK_TIMEOUT).build()?;
     Ok(client.get(LATEST_URL).send().await?.error_for_status()?.json::<Published>().await?.version)
@@ -103,6 +127,9 @@ pub async fn run() -> CommandResult {
         return Ok(());
     }
     match install_of(&std::env::current_exe()?) {
+        Install::NpmGlobal if !binary_available(&latest).await => {
+            println!("bucca {latest} is still being published. Run bucca update again in a few minutes.");
+        }
         Install::NpmGlobal => {
             println!("Updating bucca {CURRENT} to {latest}…");
             let status = std::process::Command::new("npm").args(["install", "--global", "--prefer-online", "buccanet@latest"]).status()?;
@@ -128,6 +155,18 @@ mod tests {
         assert!(!is_newer("0.1.1", "0.1.1"));
         assert!(!is_newer("0.1.0", "0.1.1"));
         assert!(!is_newer("0.0.0-stage", "0.1.0"));
+    }
+
+    #[test]
+    fn names_the_binary_package_as_the_npm_build_does() {
+        let expected = match (std::env::consts::OS, std::env::consts::ARCH) {
+            ("macos", "aarch64") => "buccanet-darwin-arm64",
+            ("macos", "x86_64") => "buccanet-darwin-x64",
+            ("linux", "x86_64") => "buccanet-linux-x64",
+            ("linux", "aarch64") => "buccanet-linux-arm64",
+            _ => return,
+        };
+        assert_eq!(platform_package(), expected);
     }
 
     #[test]

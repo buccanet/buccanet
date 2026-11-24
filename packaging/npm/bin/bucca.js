@@ -9,7 +9,10 @@ let path;
 try {
   path = require.resolve(`${target}/bin/${binary}`);
 } catch {
-  console.error(`bucca: no prebuilt binary for ${process.platform}-${process.arch}. Install with cargo: cargo install buccanet-cli`);
+  console.error(
+    `bucca: the binary for ${process.platform}-${process.arch} is missing. ` +
+      'Reinstall with: npm install --global --prefer-online buccanet@latest',
+  );
   process.exit(1);
 }
 const result = spawnSync(path, process.argv.slice(2), { stdio: 'inherit' });
