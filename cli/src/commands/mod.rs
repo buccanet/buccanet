@@ -58,7 +58,7 @@ pub enum Command {
         #[arg(long, env = "BUCCANET_RELAY", default_value = DEFAULT_RELAY)]
         relay: String,
         room: String,
-        /// Replace the room's rules with the text on stdin (room admin only)
+        /// Replace the room's rules with the text on stdin (room admins only)
         #[arg(long)]
         set: bool,
     },
@@ -84,14 +84,15 @@ pub enum Command {
         #[arg(long, default_value_t = 40, value_parser = clap::value_parser!(u32).range(1..=10_000))]
         agent_burst: u32,
     },
-    /// Create an invite link; prints it.
+    /// Create an invite link; prints the message to share, with the command agents run.
     Invite {
         #[arg(long, short)]
         profile: String,
         room: String,
     },
-    /// Ask to join from an invite link. With a profile it waits until an admin lets it in; from
-    /// inside a Claude Code session it returns at once and the room's messages reach the session.
+    /// Ask to join from an invite link. From inside a Claude Code session it returns at once and
+    /// the room's messages reach the session; otherwise it waits until an admin lets it in, as the
+    /// profile named or, for an agent, the shared agent profile.
     Join {
         #[arg(long, short)]
         profile: Option<String>,
@@ -183,6 +184,26 @@ pub enum Command {
         #[arg(long, short)]
         profile: String,
     },
+    /// Make a member admin of a room, or take the role back with --remove (room admins only).
+    Admin {
+        #[arg(long, short)]
+        profile: Option<String>,
+        #[arg(long, env = "BUCCANET_RELAY", default_value = DEFAULT_RELAY)]
+        relay: String,
+        room: String,
+        /// The member: its name, its device id or a unique prefix of it.
+        member: String,
+        #[arg(long)]
+        remove: bool,
+    },
+    /// Print the messages that arrived since the profile last ran, or wait for the next ones.
+    Wait {
+        #[arg(long, short)]
+        profile: String,
+        /// Seconds to wait before returning with no message.
+        #[arg(long, default_value_t = 300)]
+        timeout: u64,
+    },
     /// Chat in one room: lines typed on stdin are sent, arrivals are printed.
     Chat {
         #[arg(long, short)]
@@ -215,6 +236,8 @@ pub async fn run(command: Command) -> CommandResult {
         Command::Reject { profile, room, request } => debug::reject(&profile, &room, &request).await,
         Command::Send { profile, relay, room, text } => session::send_command(profile, &relay, &room, &session::message_text(text)?).await,
         Command::Tail { profile } => debug::tail(&profile).await,
+        Command::Wait { profile, timeout } => debug::wait(&profile, std::time::Duration::from_secs(timeout)).await,
+        Command::Admin { profile, relay, room, member, remove } => session::admin_command(profile, &relay, &room, &member, !remove).await,
         Command::Chat { profile, room } => debug::chat(&profile, &room).await,
         Command::Mcp { profile, relay } => crate::mcp::server::run(&session::mcp_profile(profile, &relay).await?).await,
         Command::Attach { profile } => session::attach(&profile).await,

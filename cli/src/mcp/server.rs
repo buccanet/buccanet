@@ -18,7 +18,7 @@ use crate::profile::{self, Profile, ProfileError};
 use crate::text;
 use crate::wake::briefing::Briefer;
 use crate::wake::claude_inbox::ClaudeInbox;
-use crate::wake::{Wake, next_batch, prompt, socket};
+use crate::wake::{Wake, next_batch, prompt, socket, wakes};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Era {
@@ -37,11 +37,6 @@ struct Server {
     era: Arc<Mutex<Era>>,
 }
 
-fn init_logging(profile: &Profile) {
-    let Ok(file) = std::fs::OpenOptions::new().create(true).append(true).open(profile.log_path()) else { return };
-    let _ = tracing_subscriber::fmt().with_ansi(false).with_writer(Mutex::new(file)).try_init();
-}
-
 fn server(backend: Backend, inbox: Option<tokio::sync::mpsc::UnboundedSender<Wake>>) -> Server {
     let out = Out::spawn();
     Server { backend: Arc::new(backend), inbox, hub: EventHub::new(out.clone()), out, era: Arc::new(Mutex::new(Era::Unknown)) }
@@ -49,14 +44,14 @@ fn server(backend: Backend, inbox: Option<tokio::sync::mpsc::UnboundedSender<Wak
 
 /// The owner opens the device, follows its inbox, delivers wakes and answers other instances.
 async fn owner(profile: Profile) -> Result<Server, Box<dyn std::error::Error>> {
-    init_logging(&profile);
     let (client, events) = open_client(&profile).await?;
+    let client_id = client.device_id();
     let ctx = Arc::new(ToolContext { client: client.clone(), config: profile.config.clone(), profile_dir: profile.dir.clone() });
     control::serve(ctx.clone(), &profile.control_socket())?;
     let server = server(Backend::Local(ctx), ClaudeInbox::from_env().map(spawn_inbox));
     tokio::spawn(async move { client.run().await });
     let briefer = Briefer::new(profile.dir.clone());
-    tokio::spawn(server.clone().deliver(events, profile.wake_socket(), briefer));
+    tokio::spawn(server.clone().deliver(events, profile.wake_socket(), briefer, client_id));
     Ok(server)
 }
 
@@ -163,9 +158,13 @@ impl Server {
         self.wake(socket, wake).await;
     }
 
-    async fn deliver(self, mut events: Events, socket: std::path::PathBuf, mut briefer: Briefer) {
+    /// Publishes every message to event subscribers, and wakes the agent for the ones meant for it.
+    async fn deliver(self, mut events: Events, socket: std::path::PathBuf, mut briefer: Briefer, me: String) {
         while let Some(event) = events.recv().await {
             match event {
+                ClientEvent::Message { message } if !message.own && !message.shared && !wakes(&message, &me) => {
+                    self.hub.publish_message(&message);
+                }
                 ClientEvent::Message { message } if !message.own && !message.shared => {
                     let name = text::line(&message.author_name);
                     let content = format!("{name} ({}): {}", kind_label(message.author_kind), text::indented(&message.text));

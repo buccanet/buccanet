@@ -365,7 +365,7 @@ dependencies = [
 
 [[package]]
 name = "buccanet-cli"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "arboard",
  "async-stream",
@@ -391,12 +391,13 @@ dependencies = [
  "toml 0.8.23",
  "tracing",
  "tracing-subscriber",
+ "unicode-width 0.2.0",
  "uuid",
 ]
 
 [[package]]
 name = "buccanet-ffi"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "buccanet-sdk",
  "thiserror",
@@ -406,7 +407,7 @@ dependencies = [
 
 [[package]]
 name = "buccanet-protocol"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "base64 0.22.1",
  "openmls",
@@ -421,7 +422,7 @@ dependencies = [
 
 [[package]]
 name = "buccanet-sdk"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "base64 0.22.1",
  "buccanet-protocol",
@@ -447,7 +448,7 @@ dependencies = [
 
 [[package]]
 name = "buccanet-wasm"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "buccanet-sdk",
  "getrandom 0.2.17",

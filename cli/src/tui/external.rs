@@ -4,7 +4,6 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
 use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode};
 use ratatui::DefaultTerminal;
 
@@ -12,7 +11,7 @@ use super::app::App;
 use crate::{instructions, profile};
 
 pub enum External {
-    /// The room admin edits the rules of a room.
+    /// A room admin edits the rules of a room.
     EditRules { room_id: String, text: String },
     /// The owner edits the instructions all their agents follow.
     EditInstructions,
@@ -40,14 +39,16 @@ fn open_with(program: Vec<String>, file: &Path) -> std::io::Result<()> {
 /// Leaves the terminal to the other program, then takes it back. The caller stops reading
 /// keys first, so the program gets every keystroke.
 pub async fn run(terminal: &mut DefaultTerminal, app: &mut App, external: External) {
-    let _ = crossterm::execute!(std::io::stdout(), DisableMouseCapture, LeaveAlternateScreen);
+    super::release_input();
+    let _ = crossterm::execute!(std::io::stdout(), LeaveAlternateScreen);
     let _ = disable_raw_mode();
     app.status = match handle(app, external).await {
         Ok(status) => status,
         Err(error) => format!("error: {error}"),
     };
     let _ = enable_raw_mode();
-    let _ = crossterm::execute!(std::io::stdout(), EnterAlternateScreen, EnableMouseCapture);
+    let _ = crossterm::execute!(std::io::stdout(), EnterAlternateScreen);
+    super::capture_input();
     let _ = terminal.clear();
 }
 

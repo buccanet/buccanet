@@ -79,6 +79,9 @@ fn record(wake: &Wake) -> Value {
     if truncated {
         value["truncated"] = json!(true);
     }
+    if wake.mentions_you {
+        value["mentionsYou"] = json!(true);
+    }
     value
 }
 

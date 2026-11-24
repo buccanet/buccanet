@@ -1,8 +1,9 @@
 //! The tools every harness gets, whatever its MCP era.
 
-use buccanet_sdk::{ChatMessage, Client, DeviceKind, RoomPolicy};
+use buccanet_sdk::{ChatMessage, Client, RoomPolicy, invite_message};
 use serde_json::{Value, json};
 
+use super::admin_tools;
 use super::rpc::{INVALID_PARAMS, RpcError};
 use crate::commands::output::kind_label;
 use crate::profile::ProfileConfig;
@@ -27,11 +28,11 @@ pub struct ToolOutput {
 }
 
 impl ToolOutput {
-    fn ok(text: impl Into<String>, structured: Value) -> Self {
+    pub(super) fn ok(text: impl Into<String>, structured: Value) -> Self {
         Self { text: text.into(), structured, is_error: false }
     }
 
-    fn failed(text: impl Into<String>) -> Self {
+    pub(super) fn failed(text: impl Into<String>) -> Self {
         let text = text.into();
         Self { structured: json!({ "error": text }), text, is_error: true }
     }
@@ -41,7 +42,7 @@ impl ToolOutput {
     }
 }
 
-fn tool(name: &str, description: &str, properties: Value, required: &[&str]) -> Value {
+pub(super) fn tool(name: &str, description: &str, properties: Value, required: &[&str]) -> Value {
     json!({
         "name": name,
         "description": description,
@@ -51,7 +52,7 @@ fn tool(name: &str, description: &str, properties: Value, required: &[&str]) -> 
 
 pub fn definitions() -> Vec<Value> {
     let room = json!({ "type": "string", "description": "Room id, or a unique prefix of it" });
-    vec![
+    [
         tool("list_rooms", "List the rooms you are in, with their members.", json!({}), &[]),
         tool(
             "create_room",
@@ -89,30 +90,14 @@ pub fn definitions() -> Vec<Value> {
             &["roomId"],
         ),
         tool("get_room_rules", "Read your owner's instructions and the rules of a room, in full.", json!({ "roomId": room }), &["roomId"]),
-        tool(
-            "set_room_rules",
-            "Replace the rules of a room you administer; every member receives them. Refused unless your owner enabled agent approvals.",
-            json!({ "roomId": room, "text": { "type": "string", "description": "The new rules, in Markdown" } }),
-            &["roomId", "text"],
-        ),
-        tool("list_requests", "List pending join requests of a room you administer.", json!({ "roomId": room }), &["roomId"]),
-        tool(
-            "approve_member",
-            "Let a pending requester into a room you administer. Refused unless your owner enabled agent approvals.",
-            json!({ "roomId": room, "requestId": { "type": "string" } }),
-            &["roomId", "requestId"],
-        ),
-        tool(
-            "reject_member",
-            "Refuse a pending join request.",
-            json!({ "roomId": room, "requestId": { "type": "string" } }),
-            &["roomId", "requestId"],
-        ),
         tool("list_contacts", "Everyone you share a room with.", json!({}), &[]),
     ]
+    .into_iter()
+    .chain(admin_tools::definitions(&room))
+    .collect()
 }
 
-fn arg<'a>(args: &'a Value, key: &str) -> Result<&'a str, RpcError> {
+pub(super) fn arg<'a>(args: &'a Value, key: &str) -> Result<&'a str, RpcError> {
     args.get(key).and_then(Value::as_str).ok_or_else(|| RpcError::new(INVALID_PARAMS, format!("{key} is required")))
 }
 
@@ -155,24 +140,14 @@ pub async fn call(ctx: &ToolContext, name: &str, args: &Value) -> Result<ToolOut
         }
         "leave_room" => with_room(ctx, args, |ctx, room| Box::pin(leave_room(ctx, room))).await,
         "get_room_rules" => with_room(ctx, args, |ctx, room| Box::pin(get_room_rules(ctx, room))).await,
-        "set_room_rules" => {
-            let text = arg(args, "text")?.to_string();
-            with_room(ctx, args, move |ctx, room| Box::pin(set_room_rules(ctx, room, text))).await
-        }
-        "list_requests" => with_room(ctx, args, |ctx, room| Box::pin(list_requests(ctx, room))).await,
-        "approve_member" | "reject_member" => {
-            let request = arg(args, "requestId")?.to_string();
-            let approve = name == "approve_member";
-            with_room(ctx, args, move |ctx, room| Box::pin(decide(ctx, room, request, approve))).await
-        }
         "list_contacts" => Ok(list_contacts(ctx).await),
-        other => Err(RpcError::new(INVALID_PARAMS, format!("Unknown tool: {other}"))),
+        other => admin_tools::call(ctx, other, args).await,
     }
 }
 
-type ToolFuture<'a> = std::pin::Pin<Box<dyn std::future::Future<Output = ToolOutput> + Send + 'a>>;
+pub(super) type ToolFuture<'a> = std::pin::Pin<Box<dyn std::future::Future<Output = ToolOutput> + Send + 'a>>;
 
-async fn with_room<'a, F>(ctx: &'a ToolContext, args: &Value, run: F) -> Result<ToolOutput, RpcError>
+pub(super) async fn with_room<'a, F>(ctx: &'a ToolContext, args: &Value, run: F) -> Result<ToolOutput, RpcError>
 where
     F: FnOnce(&'a ToolContext, String) -> ToolFuture<'a>,
 {
@@ -227,16 +202,20 @@ async fn create_room(ctx: &ToolContext, args: &Value) -> ToolOutput {
         Err(error) => return ToolOutput::failed(error.to_string()),
     };
     match ctx.client.create_invite(&room.room_id).await {
-        Ok(link) => {
-            ToolOutput::ok(format!("Room {} created. Invite link: {link}", room.room_id), json!({ "roomId": room.room_id, "invite": link }))
-        }
+        Ok(link) => ToolOutput::ok(
+            format!("Room {} created. Share this invite:\n{}", room.room_id, invite_message(&link)),
+            json!({ "roomId": room.room_id, "invite": link, "message": invite_message(&link) }),
+        ),
         Err(error) => ToolOutput::failed(error.to_string()),
     }
 }
 
 async fn create_invite(ctx: &ToolContext, room: String) -> ToolOutput {
     match ctx.client.create_invite(&room).await {
-        Ok(link) => ToolOutput::ok(format!("Invite link: {link}"), json!({ "invite": link })),
+        Ok(link) => ToolOutput::ok(
+            format!("Share this invite:\n{}", invite_message(&link)),
+            json!({ "invite": link, "message": invite_message(&link) }),
+        ),
         Err(error) => ToolOutput::failed(error.to_string()),
     }
 }
@@ -294,56 +273,13 @@ async fn get_room_rules(ctx: &ToolContext, room: String) -> ToolOutput {
     };
     let rules_text = rules.as_ref().map_or_else(
         || "This room has no rules yet.".to_string(),
-        |rules| format!("Room rules (version {}), set by its admin:\n{}", rules.version, rules.text),
+        |rules| format!("Room rules (version {}), set by a room admin:\n{}", rules.version, rules.text),
     );
     let text = format!("Your owner's instructions (version {}):\n{}\n\n{rules_text}", instructions.version, instructions.text);
     ToolOutput::ok(
         text,
         json!({ "roomId": room, "instructions": instructions.text, "instructionsVersion": instructions.version, "rules": rules }),
     )
-}
-
-async fn set_room_rules(ctx: &ToolContext, room: String, text: String) -> ToolOutput {
-    if ctx.config.kind == DeviceKind::Agent && !ctx.config.allow_agent_approvals {
-        return ToolOutput::failed("Your owner has not let agents change room rules. Ask them to.");
-    }
-    if let Err(leak) = guard::check_sender(ctx.config.kind, &text) {
-        return ToolOutput::failed(leak.to_string());
-    }
-    match ctx.client.set_room_rules(&room, &text).await {
-        Ok(info) => {
-            let version = info.rules.map_or(0, |rules| rules.version);
-            ToolOutput::ok(format!("The rules of room {room} are now version {version}."), json!({ "roomId": room, "version": version }))
-        }
-        Err(error) => ToolOutput::failed(error.to_string()),
-    }
-}
-
-async fn list_requests(ctx: &ToolContext, room: String) -> ToolOutput {
-    match ctx.client.pending_requests(&room).await {
-        Ok(requests) if requests.is_empty() => ToolOutput::ok("No pending request.", json!({ "requests": [] })),
-        Ok(requests) => {
-            let lines: Vec<String> = requests
-                .iter()
-                .map(|request| format!("{} {} ({})", text::line(&request.request_id), text::line(&request.name), kind_label(request.kind)))
-                .collect();
-            ToolOutput::ok(lines.join("\n"), json!({ "requests": requests }))
-        }
-        Err(error) => ToolOutput::failed(error.to_string()),
-    }
-}
-
-async fn decide(ctx: &ToolContext, room: String, request: String, approve: bool) -> ToolOutput {
-    if approve && !ctx.config.allow_agent_approvals {
-        return ToolOutput::failed(
-            "Your owner has not enabled agent approvals. Ask them to approve from the Buccanet app or `bucca approve`.",
-        );
-    }
-    let result = if approve { ctx.client.approve(&room, &request).await } else { ctx.client.reject(&room, &request).await };
-    match result {
-        Ok(()) => ToolOutput::ok(if approve { "Approved." } else { "Rejected." }, json!({ "roomId": room, "requestId": request })),
-        Err(error) => ToolOutput::failed(error.to_string()),
-    }
 }
 
 async fn list_contacts(ctx: &ToolContext) -> ToolOutput {

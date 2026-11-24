@@ -9,13 +9,35 @@ use ratatui::widgets::{Block, BorderType, Borders, List, ListItem, ListState, Pa
 
 use super::app::{App, Focus};
 use super::menu::{self, MenuItem};
+use super::selection::Panes;
 use crate::text;
 
 const GREEN: Color = Color::Rgb(0, 255, 102);
 const DIM: Color = Color::Rgb(0, 130, 60);
 const CYAN: Color = Color::Rgb(0, 215, 255);
 const AMBER: Color = Color::Rgb(255, 190, 0);
+const RED: Color = Color::Rgb(255, 85, 85);
 const BG: Color = Color::Black;
+/// What starts the first row of the input; the rows below are indented by as much.
+pub const PROMPT: &str = "› ";
+/// Narrower than this, the members move under the rooms so the conversation keeps its width.
+const WIDE: u16 = 100;
+
+/// Rooms, conversation and members side by side on a wide screen; on a narrow one the left
+/// column holds the rooms above the members, each scrolling on its own.
+fn panes(main: Rect) -> [Rect; 3] {
+    if main.width >= WIDE {
+        return Layout::horizontal([Constraint::Length(30), Constraint::Min(30), Constraint::Length(32)]).areas(main);
+    }
+    let [left, messages] = Layout::horizontal([Constraint::Length(30), Constraint::Min(20)]).areas(main);
+    let [rooms, members] = Layout::vertical([Constraint::Percentage(50), Constraint::Percentage(50)]).areas(left);
+    [rooms, messages, members]
+}
+
+/// Rows the input grows to before it scrolls.
+const INPUT_ROWS: u16 = 8;
+/// Rows the status line wraps onto, so an error shows whole.
+const STATUS_ROWS: usize = 3;
 
 fn block(title: &str, focused: bool) -> Block<'_> {
     Block::default()
@@ -60,26 +82,55 @@ fn member_color(app: &App, device_id: &str) -> Color {
 pub fn draw(frame: &mut Frame, app: &App) {
     let menu = app.menu();
     let menu_rows = menu.len().min(menu::VISIBLE) as u16;
+    // Inside its borders the input is as wide as the screen less two columns.
+    let input_rows = app.input.layout(PROMPT, frame.area().width.saturating_sub(2)).rows.len() as u16;
+    let status_line = status_paragraph(app);
+    let status_rows = status_line.line_count(frame.area().width).clamp(1, STATUS_ROWS) as u16;
     let [top, main, menu_area, status, input] = Layout::vertical([
         Constraint::Length(1),
         Constraint::Min(5),
         Constraint::Length(menu_rows),
-        Constraint::Length(1),
-        Constraint::Length(3),
+        Constraint::Length(status_rows),
+        Constraint::Length(input_rows.clamp(1, INPUT_ROWS) + 2),
     ])
     .areas(frame.area());
-    let [rooms, messages, members] = Layout::horizontal([Constraint::Length(30), Constraint::Min(30), Constraint::Length(32)]).areas(main);
+    let [rooms, messages, members] = panes(main);
     draw_top(frame, app, top);
     draw_rooms(frame, app, rooms);
     draw_messages(frame, app, messages);
     draw_members(frame, app, members);
     draw_menu(frame, &menu, app.picked, menu_area);
+    frame.render_widget(status_line, status);
+    draw_input(frame, app, input);
+    let inner = |area: Rect| block("", false).inner(area);
+    app.panes.set(Panes { rooms: inner(rooms), messages: inner(messages), members: inner(members), input: inner(input) });
+    if let Some(selection) = &app.selection {
+        selection.highlight(frame.buffer_mut());
+    }
+}
+
+fn status_paragraph(app: &App) -> Paragraph<'static> {
     let line = Line::from(Span::styled(format!(" {}", text::line(&app.status)), Style::default().fg(AMBER)));
-    frame.render_widget(Paragraph::new(line).style(Style::default().bg(BG)), status);
+    Paragraph::new(line).style(Style::default().bg(BG)).wrap(Wrap { trim: false })
+}
+
+/// The input box grows with what is typed and scrolls past its last rows to keep the cursor in
+/// view; the terminal's own cursor shows where typing goes.
+fn draw_input(frame: &mut Frame, app: &App, area: Rect) {
     let target = app.room().map_or_else(|| "no room yet".to_string(), |room| format!("to {}", room_name(room)));
-    let input_title = format!("{target} · / for commands");
-    let prompt = Paragraph::new(format!("› {}▌", app.input)).block(block(&input_title, app.focus == Focus::Input));
-    frame.render_widget(prompt, input);
+    let title = format!("{target} · / for commands · Alt+Enter: new line");
+    let frame_block = block(&title, app.focus == Focus::Input);
+    let inner = frame_block.inner(area);
+    let layout = app.input.layout(PROMPT, inner.width);
+    let (column, row) = layout.cursor;
+    let offset = row.saturating_sub(inner.height.saturating_sub(1));
+    app.input_width.set(inner.width);
+    app.input_offset.set(offset);
+    let rows: Vec<Line> = layout.rows.into_iter().skip(usize::from(offset)).map(Line::raw).collect();
+    frame.render_widget(Paragraph::new(rows).block(frame_block), area);
+    if app.focus == Focus::Input {
+        frame.set_cursor_position((inner.x + column, inner.y + row - offset));
+    }
 }
 
 /// Width of the command column, so the descriptions line up.
@@ -145,7 +196,8 @@ fn draw_rooms(frame: &mut Frame, app: &App, area: Rect) {
         .block(block("rooms", app.focus == Focus::Rooms))
         .highlight_style(Style::default().fg(BG).bg(GREEN))
         .highlight_symbol("› ");
-    let mut state = ListState::default().with_selected((!app.rooms.is_empty()).then_some(app.selected));
+    // The wheel moves the list; the open room still stays in view.
+    let mut state = ListState::default().with_offset(app.rooms_scroll).with_selected((!app.rooms.is_empty()).then_some(app.selected));
     frame.render_stateful_widget(list, area, &mut state);
 }
 
@@ -157,8 +209,20 @@ fn message_lines(app: &App, message: &ChatMessage) -> Vec<Line<'static>> {
         .map(|at| at.with_timezone(&chrono::Local).format("%H:%M").to_string())
         .unwrap_or_else(|_| "--:--".into());
     let name_style = Style::default().fg(color).add_modifier(if message.own { Modifier::BOLD } else { Modifier::empty() });
-    let text_color = if message.shared { DIM } else { GREEN };
-    let text_style = Style::default().fg(text_color);
+    // A message that names this device with `@` stands out in amber; one this device could not
+    // decrypt shows in red italics.
+    let for_me = message.mentions.contains(&app.client.device_id());
+    let text_color = if message.unreadable {
+        RED
+    } else if message.shared {
+        DIM
+    } else if for_me {
+        AMBER
+    } else {
+        GREEN
+    };
+    let italic = if message.unreadable { Modifier::ITALIC } else { Modifier::empty() };
+    let text_style = Style::default().fg(text_color).add_modifier(italic);
     let body = text::body(&message.text);
     let mut rows = body.lines().map(str::to_string);
     let mut lines = vec![Line::from(vec![
@@ -217,5 +281,9 @@ fn draw_members(frame: &mut Frame, app: &App, area: Rect) {
         lines.push(Line::raw(""));
         lines.push(Line::from(Span::styled(format!("{} waiting · /approve", app.pending.len()), Style::default().fg(AMBER))));
     }
-    frame.render_widget(Paragraph::new(lines).block(block("members", false)), area);
+    let frame_block = block("members", false);
+    let hidden = lines.len().saturating_sub(usize::from(frame_block.inner(area).height));
+    app.members_limit.set(hidden);
+    let offset = u16::try_from(app.members_scroll.min(hidden)).unwrap_or(u16::MAX);
+    frame.render_widget(Paragraph::new(lines).block(frame_block).scroll((offset, 0)), area);
 }

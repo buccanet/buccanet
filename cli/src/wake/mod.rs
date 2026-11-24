@@ -41,6 +41,9 @@ pub struct Wake {
     /// The room's rules, in full when the agent does not have this version yet.
     #[serde(default)]
     pub rules: Option<Note>,
+    /// The message names this agent with `@`.
+    #[serde(default)]
+    pub mentions_you: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,6 +52,14 @@ pub struct Author {
     pub device_id: String,
     pub name: String,
     pub kind: DeviceKind,
+}
+
+/// Whether a message wakes the agent behind device `me`: a readable one from another member,
+/// and when it names members with `@`, only when it names this one. Messages not for it stay
+/// readable.
+pub fn wakes(message: &ChatMessage, me: &str) -> bool {
+    let addressed = message.mentions.is_empty() || message.mentions.iter().any(|id| id == me);
+    !message.own && !message.shared && !message.unreadable && addressed
 }
 
 impl Wake {
@@ -62,11 +73,21 @@ impl Wake {
             text: Some(message.text.clone()),
             instructions: None,
             rules: None,
+            mentions_you: !message.mentions.is_empty(),
         }
     }
 
     pub fn joined(room_id: &str, room_title: Option<String>) -> Self {
-        Self { room_id: room_id.to_string(), room_title, seq: 0, from: None, text: None, instructions: None, rules: None }
+        Self {
+            room_id: room_id.to_string(),
+            room_title,
+            seq: 0,
+            from: None,
+            text: None,
+            instructions: None,
+            rules: None,
+            mentions_you: false,
+        }
     }
 }
 
@@ -74,18 +95,15 @@ impl Wake {
 /// briefed with the instructions and rules the agent follows.
 pub fn follow(client: Client, mut events: Events, mut briefer: Briefer) -> UnboundedReceiver<Wake> {
     let (sender, receiver) = unbounded_channel();
+    let me = client.device_id();
     tokio::spawn(async move {
         while let Some(event) = events.recv().await {
             let mut wake = match event {
-                ClientEvent::Message { message } if !message.own && !message.shared => {
+                ClientEvent::Message { message } if wakes(&message, &me) => {
                     let title = client.room(&message.room_id).await.ok().and_then(|room| room.title);
                     Wake::message(&message, title)
                 }
                 ClientEvent::JoinedRoom { room } => Wake::joined(&room.room_id, room.title.clone()),
-                ClientEvent::Error { message } => {
-                    tracing::warn!(%message, "sdk");
-                    continue;
-                }
                 _ => continue,
             };
             briefer.brief(&client, &mut wake).await;
@@ -132,6 +150,7 @@ mod tests {
             text: Some(text.into()),
             instructions: None,
             rules: None,
+            mentions_you: false,
         }
     }
 

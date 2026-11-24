@@ -5,12 +5,14 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use buccanet_sdk::Client;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
 
 use super::rpc::{INVALID_PARAMS, RpcError};
 use super::tools::{self, ToolContext, ToolOutput};
+use crate::profile::Profile;
 
 const OWNER_GONE: i64 = -32603;
 
@@ -36,6 +38,13 @@ impl Backend {
             Backend::Remote(_) => Err(RpcError::new(OWNER_GONE, "Events are served by the MCP process that owns this profile.")),
         }
     }
+}
+
+/// Every long running process that holds a profile (`tail`, `chat`, the terminal UI) answers the
+/// other commands of that profile on its control socket.
+pub fn serve_profile(profile: &Profile, client: &Client) -> std::io::Result<()> {
+    let ctx = Arc::new(ToolContext { client: client.clone(), config: profile.config.clone(), profile_dir: profile.dir.clone() });
+    serve(ctx, &profile.control_socket())
 }
 
 /// Owner side: answers one `{name, arguments}` line per connection.

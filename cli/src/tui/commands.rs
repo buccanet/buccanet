@@ -1,6 +1,6 @@
 //! What the input line does: text is a message, `/word` is a command.
 
-use buccanet_sdk::{RoomPolicy, default_rules};
+use buccanet_sdk::{MemberInfo, RoomPolicy, default_rules, invite_message};
 
 use super::app::App;
 use super::external::External;
@@ -17,7 +17,7 @@ pub async fn accept(app: &mut App) {
 }
 
 pub async fn submit(app: &mut App) {
-    let line = std::mem::take(&mut app.input);
+    let line = app.input.take();
     let line = line.trim();
     if line.is_empty() {
         return;
@@ -45,6 +45,8 @@ pub async fn submit(app: &mut App) {
         "approve" => decide(app, true).await,
         "reject" => decide(app, false).await,
         "remove" => remove(app, rest).await,
+        "admin" => set_admin(app, rest, true).await,
+        "unadmin" => set_admin(app, rest, false).await,
         "leave" => leave(app).await,
         other => Err(format!("Unknown command /{other}. Type / to see the commands.")),
     };
@@ -99,7 +101,7 @@ async fn rename(app: &mut App, title: &str) -> Result<String, String> {
 async fn leave(app: &mut App) -> Result<String, String> {
     let room = app.room().cloned().ok_or("Pick a room first.")?;
     if !app.confirmed(format!("leave {}", room.room_id)) {
-        app.input = "/leave".into();
+        app.input.set("/leave");
         return Ok("Press Enter again within 5 seconds to leave this room.".into());
     }
     app.client.leave_room(&room.room_id).await.map_err(|error| error.to_string())?;
@@ -107,27 +109,44 @@ async fn leave(app: &mut App) -> Result<String, String> {
     Ok(format!("You left {}.", room.title.as_deref().map_or_else(|| text::short(&room.room_id, 8), text::line)))
 }
 
-/// Removes the member picked in the menu (its device id), or the one whose name holds `wanted`.
-async fn remove(app: &mut App, wanted: &str) -> Result<String, String> {
-    let room = app.room().cloned().ok_or("Pick a room first.")?;
+/// Another member of the open room: the one picked in the menu (its device id), or the one
+/// whose name holds `wanted`.
+fn pick_member(app: &App, wanted: &str, command: &str) -> Result<MemberInfo, String> {
+    let room = app.room().ok_or("Pick a room first.")?;
     let me = app.client.device_id();
     let lowered = wanted.to_lowercase();
     let others: Vec<_> = room.members.iter().filter(|member| member.device_id != me).collect();
     let by_id = others.iter().copied().find(|member| member.device_id == wanted);
     let by_name: Vec<_> = others.iter().copied().filter(|member| member.name.to_lowercase().contains(&lowered)).collect();
-    let member = match (by_id, by_name.as_slice()) {
-        _ if wanted.is_empty() => return Err("Pick the member in the list: /remove <name>".into()),
-        (Some(member), _) | (None, &[member]) => member.clone(),
-        (None, []) => return Err(format!("No member named {} here.", text::line(wanted))),
-        (None, _) => return Err(format!("Several members match {}: pick one in the list.", text::line(wanted))),
-    };
+    match (by_id, by_name.as_slice()) {
+        _ if wanted.is_empty() => Err(format!("Pick the member in the list: /{command} <name>")),
+        (Some(member), _) | (None, &[member]) => Ok(member.clone()),
+        (None, []) => Err(format!("No member named {} here.", text::line(wanted))),
+        (None, _) => Err(format!("Several members match {}: pick one in the list.", text::line(wanted))),
+    }
+}
+
+/// Removes a member after a second Enter.
+async fn remove(app: &mut App, wanted: &str) -> Result<String, String> {
+    let member = pick_member(app, wanted, "remove")?;
+    let room = app.room().cloned().ok_or("Pick a room first.")?;
     if !app.confirmed(format!("remove {} {}", room.room_id, member.device_id)) {
-        app.input = format!("/remove {}", member.device_id);
+        app.input.set(format!("/remove {}", member.device_id));
         return Ok(format!("Press Enter again within 5 seconds to remove {}.", text::line(&member.name)));
     }
     app.client.remove_member(&room.room_id, &member.device_id).await.map_err(|error| error.to_string())?;
     app.reload().await;
     Ok(format!("{} was removed.", text::line(&member.name)))
+}
+
+/// Makes a member admin of the open room, or takes the role back.
+async fn set_admin(app: &mut App, wanted: &str, admin: bool) -> Result<String, String> {
+    let member = pick_member(app, wanted, if admin { "admin" } else { "unadmin" })?;
+    let room = app.room_id().ok_or("Pick a room first.")?;
+    app.client.set_admin(&room, &member.device_id, admin).await.map_err(|error| error.to_string())?;
+    app.reload().await;
+    let role = if admin { "is now an admin" } else { "is no longer an admin" };
+    Ok(format!("{} {role}.", text::line(&member.name)))
 }
 
 async fn invite(app: &mut App) -> Result<String, String> {
@@ -136,13 +155,12 @@ async fn invite(app: &mut App) -> Result<String, String> {
     Ok(share(&link))
 }
 
-/// Puts the invite on the clipboard as the message a person or an agent acts on: an agent told
-/// `join this chat: <link>` reads the page and joins.
+/// Puts the invite message on the clipboard: the link for a person, and the terminal command an
+/// agent runs, since an agent that opens the link in a browser may be stopped there.
 fn share(link: &str) -> String {
-    let message = format!("join this chat: {link}");
-    match arboard::Clipboard::new().and_then(|mut clipboard| clipboard.set_text(message.clone())) {
-        Ok(()) => format!("Copied, paste it to a person or an agent: {message}"),
-        Err(_) => format!("Send this to a person or an agent: {message}"),
+    match arboard::Clipboard::new().and_then(|mut clipboard| clipboard.set_text(invite_message(link))) {
+        Ok(()) => format!("Invite copied, with the command agents run. Link: {link}"),
+        Err(_) => format!("Send this invite: {}", text::line(&invite_message(link))),
     }
 }
 

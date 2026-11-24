@@ -102,7 +102,7 @@ pub fn render(batch: &[Wake], reread: &str) -> Rendered {
         let version = wake.rules.as_ref().map_or_else(String::new, |note| note.version.clone());
         match in_full {
             Some(text) => full.push(format!(
-                "Rules of {} (version {version}), set by its admin. They apply in that room, after your owner's instructions:\n{}",
+                "Rules of {} (version {version}), set by a room admin. They apply in that room, after your owner's instructions:\n{}",
                 room_label(wake),
                 fenced(RULES_START, RULES_END, text)
             )),

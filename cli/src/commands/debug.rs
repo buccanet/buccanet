@@ -40,12 +40,6 @@ async fn connect(profile: Profile) -> Result<(Profile, Client, Events), Box<dyn 
     Ok((profile, client, events))
 }
 
-/// Long running commands answer the other commands of their profile on its control socket.
-fn serve_control(profile: &Profile, client: &Client) -> std::io::Result<()> {
-    let ctx = Arc::new(ToolContext { client: client.clone(), config: profile.config.clone(), profile_dir: profile.dir.clone() });
-    control::serve(ctx, &profile.control_socket())
-}
-
 /// A room id, or a unique prefix of one.
 pub async fn resolve_room(client: &Client, room: &str) -> Result<String, Box<dyn std::error::Error>> {
     let matches: Vec<String> = client.rooms().await.into_iter().map(|info| info.room_id).filter(|id| id.starts_with(room)).collect();
@@ -114,7 +108,7 @@ pub async fn invite(name: &str, room: &str) -> CommandResult {
             through_owner(&owner, "create_invite", json!({ "roomId": room })).await?["invite"].as_str().unwrap_or_default().to_string()
         }
     };
-    println!("{link}");
+    print!("{}", buccanet_sdk::invite_message(&link));
     Ok(())
 }
 
@@ -234,7 +228,7 @@ fn print_event(event: &ClientEvent) {
 
 pub async fn tail(name: &str) -> CommandResult {
     let (profile, client, mut events) = open(name).await?;
-    serve_control(&profile, &client)?;
+    control::serve_profile(&profile, &client)?;
     let follower = client.clone();
     tokio::spawn(async move { follower.run().await });
     while let Some(event) = events.recv().await {
@@ -243,9 +237,50 @@ pub async fn tail(name: &str) -> CommandResult {
     Ok(())
 }
 
+/// Prints the messages that reached the profile since it last ran, or else waits up to
+/// `timeout` for the next ones, then exits: an agent without a harness loops on it.
+pub async fn wait(name: &str, timeout: std::time::Duration) -> CommandResult {
+    let (profile, client, mut events) = open(name).await?;
+    control::serve_profile(&profile, &client)?;
+    let me = client.device_id();
+    let mut arrived = false;
+    while let Ok(event) = events.try_recv() {
+        arrived |= print_arrival(&event, &me);
+    }
+    if arrived {
+        return Ok(());
+    }
+    let follower = client.clone();
+    let task = tokio::spawn(async move { follower.run().await });
+    let next = async {
+        while let Some(event) = events.recv().await {
+            if print_arrival(&event, &me) {
+                break;
+            }
+        }
+        while let Ok(event) = events.try_recv() {
+            print_arrival(&event, &me);
+        }
+    };
+    if tokio::time::timeout(timeout, next).await.is_err() {
+        println!("No new message for {} seconds. Run wait again to keep listening.", timeout.as_secs());
+    }
+    task.abort();
+    Ok(())
+}
+
+/// Prints a message meant for this agent, as the wake rules decide; true when it was one.
+fn print_arrival(event: &ClientEvent, me: &str) -> bool {
+    let arrival = matches!(event, ClientEvent::Message { message } if crate::wake::wakes(message, me));
+    if arrival {
+        print_event(event);
+    }
+    arrival
+}
+
 pub async fn chat(name: &str, room: &str) -> CommandResult {
     let (profile, client, mut events) = open(name).await?;
-    serve_control(&profile, &client)?;
+    control::serve_profile(&profile, &client)?;
     let room = resolve_room(&client, room).await?;
     while events.try_recv().is_ok() {}
     for message in client.messages(&room, 0).await? {

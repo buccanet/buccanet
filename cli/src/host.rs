@@ -1,7 +1,7 @@
 //! The SDK host of a CLI process: state goes to the profile file, events to a channel.
 
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use buccanet_sdk::{Client, ClientEvent, ClientHost, DeviceKind, Owner, SdkError};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
@@ -14,7 +14,11 @@ pub struct FileHost {
 }
 
 impl ClientHost for FileHost {
+    /// Every SDK error also goes, whole, to the profile's log.
     fn on_event(&self, event: ClientEvent) {
+        if let ClientEvent::Error { message } = &event {
+            tracing::warn!(%message, "sdk");
+        }
         let _ = self.events.send(event);
     }
 
@@ -38,8 +42,15 @@ pub async fn register(profile_dir_state: &Profile, relay_url: &str, name: &str, 
     Ok((client, events))
 }
 
+/// Sends this process's log lines to the profile's `buccanet.log`; the first call wins.
+fn log_to_profile(profile: &Profile) {
+    let Ok(file) = std::fs::OpenOptions::new().create(true).append(true).open(profile.log_path()) else { return };
+    let _ = tracing_subscriber::fmt().with_ansi(false).with_writer(Mutex::new(file)).try_init();
+}
+
 /// Restores the profile's device and applies its owner setting.
 pub async fn open_client(profile: &Profile) -> Result<(Client, Events), SdkError> {
+    log_to_profile(profile);
     let (host, events) = host_for(profile);
     let state = std::fs::read(profile.state_path()).map_err(|error| SdkError::State(error.to_string()))?;
     let client = Client::restore(&state, host)?;

@@ -16,6 +16,8 @@ use crate::wake::{self, bridge, claude, codex, openclaw, opencode};
 
 /// The human profile that owns the agents started on this machine.
 pub const OWNER_PROFILE: &str = "me";
+/// The profile an agent outside any harness joins as.
+pub const AGENT_PROFILE: &str = "agent";
 
 #[derive(Clone, Copy, ValueEnum)]
 pub enum Harness {

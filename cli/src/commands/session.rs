@@ -1,6 +1,8 @@
 //! Commands an agent runs from inside its harness session, with no profile to name: `join`,
-//! `send`, `read` and `rooms`. The first one creates the session's profile and starts the
-//! process that owns it (`wake::claude_session`); every command then goes through that process.
+//! `send`, `read`, `rooms` and `admin`. In a Claude Code session the first one creates the
+//! session's profile and starts the process that owns it (`wake::claude_session`); every
+//! command then goes through that process. Any other agent that runs `join` gets the shared
+//! agent profile, which it names on its next commands.
 
 use std::io::Read;
 use std::process::Stdio;
@@ -8,7 +10,7 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
-use super::run::OWNER_PROFILE;
+use super::run::{AGENT_PROFILE, OWNER_PROFILE};
 use super::setup::{NewProfile, create_profile};
 use super::{CommandResult, debug};
 use crate::mcp::control::Backend;
@@ -167,9 +169,59 @@ pub fn relay_of_invite(link: &str) -> Option<String> {
 }
 
 pub async fn join_command(profile: Option<String>, relay: &str, link: &str) -> CommandResult {
+    match (profile, ClaudeSession::from_env()) {
+        (Some(name), _) => debug::join(&name, link).await,
+        (None, Some(session)) => join(&session, relay, link).await,
+        (None, None) => join_as_agent(relay, link).await,
+    }
+}
+
+/// An agent outside Claude Code, such as Codex pasted an invite: it joins as the shared agent
+/// profile, waits for an admin, then learns the commands that read, answer and wait.
+async fn join_as_agent(relay: &str, link: &str) -> CommandResult {
+    if !profile::exists(AGENT_PROFILE) {
+        let owner = profile::exists(OWNER_PROFILE).then_some(OWNER_PROFILE);
+        let display = agent_display_name();
+        create_profile(NewProfile {
+            profile: AGENT_PROFILE,
+            display: &display,
+            kind: buccanet_sdk::DeviceKind::Agent,
+            relay,
+            owner_profile: owner,
+        })
+        .await?;
+    }
+    debug::join(AGENT_PROFILE, link).await?;
+    print!("{}", listening_guide(crate::update::command()));
+    Ok(())
+}
+
+/// How an agent with no harness to wake it stays in the conversation: nothing reaches it
+/// between its own commands, so it keeps a `wait` running.
+fn listening_guide(bucca: &str) -> String {
+    let p = AGENT_PROFILE;
+    format!(
+        "You are in the room. Nothing wakes you when someone writes, so stay in the conversation by looping:\n\
+         1. Run `{bucca} wait -p {p}`. It returns with the new messages, or after 5 minutes without any. \
+         Give your terminal tool a timeout of at least 6 minutes.\n\
+         2. When a message calls for an answer, send it with a quoted heredoc:\n\
+         {bucca} send -p {p} <room id> <<'EOF'\n<your message>\nEOF\n\
+         3. Run wait again, until the person you work for tells you to stop.\n\
+         Read earlier messages with `{bucca} read -p {p} <room id>`.\n"
+    )
+}
+
+/// The name people see for an agent that joined on its own: its harness when it shows one.
+fn agent_display_name() -> String {
+    let codex = std::env::vars().any(|(key, _)| key.starts_with("CODEX_"));
+    if codex { "Codex".to_string() } else { "Agent".to_string() }
+}
+
+pub async fn admin_command(profile: Option<String>, relay: &str, room: &str, member: &str, admin: bool) -> CommandResult {
+    let args = json!({ "roomId": room, "member": member, "admin": admin });
     match target(profile)? {
-        Target::Profile(name) => debug::join(&name, link).await,
-        Target::Session(session) => join(&session, relay, link).await,
+        Target::Profile(name) => debug::tool(&name, "set_admin", args).await,
+        Target::Session(session) => call(&session, relay, "set_admin", args).await,
     }
 }
 

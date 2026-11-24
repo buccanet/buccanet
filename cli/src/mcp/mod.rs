@@ -5,6 +5,7 @@
 //! carrying `_meta["io.modelcontextprotocol/protocolVersion"] = "2026-07-28"` is
 //! served statelessly with the Events extension (SEP-3415).
 
+pub mod admin_tools;
 pub mod control;
 pub mod cursor;
 pub mod events;
