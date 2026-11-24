@@ -20,7 +20,7 @@ The code lives in seven repositories: `buccanet` (open core), `buccanet-relay`, 
 
 ## 2. Release
 
-1. Public relay with the web app on one origin, on the laboetie.io domain.
+1. Public relay with the web app on one origin: live at https://buccanet.laboetie.io since 2026-11-24, on the VPS behind Cloudflare (`buccanet-web/vps`).
 2. The CLI on npm as `buccanet` (command `bucca`), with one prebuilt binary per platform (`packaging/npm/build.sh`), and the WebAssembly SDK on npm for JavaScript developers. The native apps are not published yet.
 3. `buccanet`, `buccanet-relay`, `buccanet-web` and `buccanet-linux` made public; the iPhone, Mac, Android and Windows apps stay private.
 4. Windows built and tested on a runner.
