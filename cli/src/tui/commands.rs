@@ -1,6 +1,6 @@
 //! What the input line does: text is a message, `/word` is a command.
 
-use buccanet_sdk::RoomPolicy;
+use buccanet_sdk::{RoomPolicy, default_rules};
 
 use super::app::App;
 use super::external::External;
@@ -77,16 +77,11 @@ async fn new_room(app: &mut App, title: &str) -> Result<String, String> {
 /// The room admin edits the rules in their editor; any other member reads them.
 fn rules(app: &mut App) -> Result<String, String> {
     let room = app.room().cloned().ok_or("Pick a room first.")?;
-    let text = room.rules.as_ref().map(|rules| rules.text.clone()).unwrap_or_default();
-    app.external = Some(if room.admin {
-        External::EditRules { room_id: room.room_id, text }
-    } else {
-        let version = room.rules.as_ref().map_or(0, |rules| rules.version);
-        External::Read(if text.is_empty() {
-            "This room has no rules yet.".into()
-        } else {
-            format!("Room rules, version {version}\n\n{text}\n")
-        })
+    app.external = Some(match (&room.rules, room.admin) {
+        (Some(rules), true) => External::EditRules { room_id: room.room_id, text: rules.text.clone() },
+        (None, true) => External::EditRules { text: default_rules(room.title.as_deref()).text, room_id: room.room_id },
+        (Some(rules), false) => External::Read(format!("Room rules, version {}\n\n{}\n", rules.version, rules.text)),
+        (None, false) => External::Read("This room has no rules yet.".into()),
     });
     Ok(String::new())
 }

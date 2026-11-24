@@ -237,6 +237,7 @@ impl Client {
 
     async fn follow(&self) -> Result<(), SdkError> {
         self.sync().await?;
+        self.adopt_default_rules().await;
         let after = self.inner.lock().await.state.cursor;
         let response = self.relay.stream(after).await?;
         self.host.on_event(ClientEvent::Connection { live: true });

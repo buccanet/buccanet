@@ -24,4 +24,5 @@ pub use buccanet_protocol::envelope::RoomRules;
 pub use client::{Client, ClientHost, JoinPending};
 pub use error::SdkError;
 pub use events::{ChatMessage, ClientEvent, MemberInfo, PendingJoin, RoomInfo};
+pub use rules::default_rules;
 pub use state::Owner;

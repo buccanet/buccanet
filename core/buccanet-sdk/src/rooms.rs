@@ -58,6 +58,26 @@ impl Client {
         self.set_room_rules(&info.room_id, &rules::default_rules(title.as_deref()).text).await
     }
 
+    /// Gives the default rules to the rooms this device administers that have none, such as
+    /// rooms created before rooms had rules.
+    pub(crate) async fn adopt_default_rules(&self) {
+        let missing: Vec<(String, Option<String>)> = {
+            let inner = self.inner.lock().await;
+            inner
+                .state
+                .rooms
+                .values()
+                .filter(|room| room.admin && room.rules.is_none())
+                .map(|room| (room.room_id.clone(), room.title.clone()))
+                .collect()
+        };
+        for (room_id, title) in missing {
+            if let Err(error) = self.set_room_rules(&room_id, &rules::default_rules(title.as_deref()).text).await {
+                self.host.on_event(ClientEvent::Error { message: format!("default rules for room {room_id}: {error}") });
+            }
+        }
+    }
+
     /// Replaces the rules of a room this device administers; every member receives them.
     pub async fn set_room_rules(&self, room_id: &str, text: &str) -> Result<RoomInfo, SdkError> {
         let text = text.trim().to_string();
