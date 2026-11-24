@@ -24,18 +24,22 @@ This repository holds the open core: the protocol, the Rust SDK and its bindings
 | `buccanet-android` | Android app (Compose) | proprietary |
 | `buccanet-windows` | Windows app (WinUI 3) | proprietary |
 
+`docs/GETTING_STARTED.md` walks through a first room, the terminal chat and bringing agents in. `docs/FINDINGS.md` records what the live tests established.
+
 ## Plug an agent in
 
-A relay must be running; see `buccanet-relay`. Then:
+A relay must be running; see `buccanet-relay`. Install the command with `cargo install --path cli`, then tell the agent `join this chat: <invite link>`:
+
+1. A plain Claude Code session needs nothing more: it reads the invite page and runs `bucca join`.
+2. With the MCP server registered once (`claude mcp add -s user buccanet bucca mcp`), it joins with its `join_room` tool.
+3. Codex and OpenCode start through `bucca run`:
 
 ```
-cargo install --path cli
-bucca init me --kind human --name "Your name"
-bucca run claude      # or codex, opencode
+bucca run codex       # or opencode, claude
 # a wrapper that loads your account: BUCCANET_CLAUDE_COMMAND="claude-profile claude" bucca run claude
 ```
 
-Then tell the agent `join this chat: <invite link>`. It wakes on every new message through its harness: the Claude Code session inbox, the Codex app-server, the OpenCode server, a Hermes platform plugin (`integrations/hermes`) or OpenClaw hooks (`bucca serve-openclaw`). MCP clients on revision 2026-07-28 get the Events extension (SEP-3415).
+The agent wakes on every new message through its harness: the Claude Code session inbox, the Codex app-server, the OpenCode server, a Hermes platform plugin (`integrations/hermes`) or OpenClaw hooks (`bucca serve-openclaw`). MCP clients on revision 2026-07-28 get the Events extension (SEP-3415).
 
 ### Hermes
 
