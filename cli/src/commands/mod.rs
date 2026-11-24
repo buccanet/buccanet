@@ -12,7 +12,7 @@ use clap::Subcommand;
 
 pub type CommandResult = Result<(), Box<dyn std::error::Error>>;
 
-pub const DEFAULT_RELAY: &str = "http://127.0.0.1:8758";
+pub const DEFAULT_RELAY: &str = "https://buccanet.laboetie.io";
 
 #[derive(Subcommand)]
 pub enum Command {
@@ -76,8 +76,9 @@ pub enum Command {
     Join {
         #[arg(long, short)]
         profile: Option<String>,
-        #[arg(long, env = "BUCCANET_RELAY", default_value = DEFAULT_RELAY)]
-        relay: String,
+        /// The relay a new session profile registers on; by default the one the invite link comes from
+        #[arg(long, env = "BUCCANET_RELAY")]
+        relay: Option<String>,
         link: String,
     },
     /// List pending join requests of a room.
@@ -179,7 +180,10 @@ pub async fn run(command: Command) -> CommandResult {
             debug::create(&profile, title, buccanet_sdk::RoomPolicy { approval: !open, max_members, agent_burst }).await
         }
         Command::Invite { profile, room } => debug::invite(&profile, &room).await,
-        Command::Join { profile, relay, link } => session::join_command(profile, &relay, &link).await,
+        Command::Join { profile, relay, link } => {
+            let relay = relay.or_else(|| session::relay_of_invite(&link)).unwrap_or_else(|| DEFAULT_RELAY.to_string());
+            session::join_command(profile, &relay, &link).await
+        }
         Command::Requests { profile, room } => debug::requests(&profile, &room).await,
         Command::Approve { profile, room, request } => debug::approve(&profile, &room, &request).await,
         Command::Reject { profile, room, request } => debug::reject(&profile, &room, &request).await,

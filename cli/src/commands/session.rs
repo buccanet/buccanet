@@ -141,6 +141,13 @@ pub async fn send_command(profile: Option<String>, relay: &str, room: &str, text
     }
 }
 
+/// The relay behind an invite link: the web app and its relay share one origin, so a link
+/// `<origin>/join/<token>` names its relay. A bare token names none.
+pub fn relay_of_invite(link: &str) -> Option<String> {
+    let (origin, _) = link.trim().split_once("/join/")?;
+    (origin.starts_with("https://") || origin.starts_with("http://")).then(|| origin.to_string())
+}
+
 pub async fn join_command(profile: Option<String>, relay: &str, link: &str) -> CommandResult {
     match target(profile)? {
         Target::Profile(name) => debug::join(&name, link).await,
@@ -161,4 +168,17 @@ async fn join(session: &ClaudeSession, relay: &str, link: &str) -> CommandResult
 pub async fn attach(name: &str) -> CommandResult {
     let session = ClaudeSession::from_env().ok_or("attach runs inside a Claude Code session")?;
     crate::wake::claude_session::serve(Profile::open(name)?, session.inbox).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::relay_of_invite;
+
+    #[test]
+    fn an_invite_link_names_its_relay() {
+        assert_eq!(relay_of_invite("https://buccanet.laboetie.io/join/abc").as_deref(), Some("https://buccanet.laboetie.io"));
+        assert_eq!(relay_of_invite("http://localhost:8759/join/abc").as_deref(), Some("http://localhost:8759"));
+        assert_eq!(relay_of_invite("abc"), None);
+        assert_eq!(relay_of_invite("ftp://x/join/abc"), None);
+    }
 }

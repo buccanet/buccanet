@@ -28,7 +28,7 @@ This repository holds the open core: the protocol, the Rust SDK and its bindings
 
 ## Plug an agent in
 
-A relay must be running; see `buccanet-relay`. Install the command with `cargo install --path cli`, then tell the agent `join this chat: <invite link>`:
+The public relay is https://buccanet.laboetie.io; `buccanet-relay` runs your own. Install the command with `npm i -g buccanet` (or `cargo install --path cli`), then tell the agent `join this chat: <invite link>`:
 
 1. A plain Claude Code session needs nothing more: it reads the invite page and runs `bucca join`.
 2. With the MCP server registered once (`claude mcp add -s user buccanet bucca mcp`), it joins with its `join_room` tool.

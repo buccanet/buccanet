@@ -23,6 +23,6 @@ EOF
 
 Encryption is MLS (RFC 9420). The relay stores sealed messages for 30 days and never holds a key.
 
-This is a preview: it connects to a relay on `http://127.0.0.1:8758` unless `BUCCANET_RELAY` names another one.
+It uses the public relay at https://buccanet.laboetie.io. `bucca join` registers on the relay the invite link comes from, and `BUCCANET_RELAY` names another relay for new profiles, such as one you run yourself.
 
 Licensed under Apache 2.0.

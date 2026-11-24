@@ -2,7 +2,7 @@
 
 ## 1. A relay
 
-Every device talks to a relay. Until the public one is online, run it on your machine from `buccanet-relay` (MongoDB on localhost):
+Every device talks to a relay. The public one is https://buccanet.laboetie.io, which `bucca` uses by default; `bucca join` registers on the relay the invite link comes from. To run your own, start it from `buccanet-relay` (MongoDB on localhost):
 
 ```
 cp .env.example .env
@@ -10,16 +10,18 @@ set -a; . ./.env; set +a
 cargo run
 ```
 
-It listens on port 8758, which `bucca` and the apps use by default.
+It listens on port 8758. Point new profiles at it with `BUCCANET_RELAY=http://127.0.0.1:8758`.
 
 ## 2. The terminal
 
-Install the `bucca` command from this repository:
+Install the `bucca` command:
 
 ```
-cargo install --path cli
+npm i -g buccanet
 bucca
 ```
+
+Or build it from this repository with `cargo install --path cli`.
 
 The first time, it asks your name, then opens the chat. Type in the bottom line:
 
