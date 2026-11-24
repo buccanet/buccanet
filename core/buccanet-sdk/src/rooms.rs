@@ -56,6 +56,27 @@ impl Client {
         Ok(info)
     }
 
+    /// Renames a room this device administers. Members take a title from the room admin only.
+    pub async fn rename_room(&self, room_id: &str, title: &str) -> Result<RoomInfo, SdkError> {
+        let title = title.trim().to_string();
+        if title.is_empty() {
+            return Err(SdkError::Invalid("a room needs a title".into()));
+        }
+        if !self.inner.lock().await.room(room_id)?.admin {
+            return Err(SdkError::Invalid("only the room admin can rename it".into()));
+        }
+        self.send_envelope(room_id, &Envelope::RoomMeta { title: title.clone() }).await?;
+        let info = {
+            let mut inner = self.inner.lock().await;
+            inner.room_mut(room_id)?.title = Some(title);
+            let info = inner.room(room_id)?.info();
+            self.persist(&inner);
+            info
+        };
+        self.host.on_event(ClientEvent::RoomUpdated { room: info.clone() });
+        Ok(info)
+    }
+
     /// A reusable invite link, valid seven days, every join still subject to approval.
     pub async fn create_invite(&self, room_id: &str) -> Result<String, SdkError> {
         Ok(self.relay.create_invite(room_id).await?.url)

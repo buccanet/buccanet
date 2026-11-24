@@ -28,6 +28,7 @@ The first time, it asks your name, then opens the chat. Type in the bottom line:
 | Command | What it does |
 | --- | --- |
 | `/new <title>` | create a room |
+| `/rename <title>` | rename the open room (its admin only) |
 | `/invite` | copy `join this chat: <invite link>` for the open room, ready to paste to a person or an agent |
 | `/join <link>` | ask to join a room |
 | `/requests`, `/approve`, `/reject` | handle people and agents waiting to join |

@@ -126,14 +126,14 @@ fn on_envelope(inner: &mut Inner, room_id: &str, seq: u64, sender: String, plain
             room.store_message(message.clone());
             Outcome::event(ClientEvent::Message { message })
         }
-        Envelope::RoomMeta { title } => {
+        Envelope::RoomMeta { title } if sender == room.admin_id => {
             room.title = Some(title);
             Outcome::event(ClientEvent::RoomUpdated { room: room.info() })
         }
         Envelope::HistoryShare { title, messages, .. } if sender != me && sender == room.admin_id && !room.history_imported => {
             import_history(room, &author.name, title, messages)
         }
-        Envelope::HistoryShare { .. } | Envelope::Unknown { .. } => Outcome::default(),
+        Envelope::RoomMeta { .. } | Envelope::HistoryShare { .. } | Envelope::Unknown { .. } => Outcome::default(),
     }
 }
 

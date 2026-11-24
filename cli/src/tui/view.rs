@@ -1,6 +1,6 @@
 //! Green on black, monospace, keyboard first.
 
-use buccanet_sdk::{ChatMessage, DeviceKind};
+use buccanet_sdk::{ChatMessage, DeviceKind, RoomInfo};
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -66,8 +66,15 @@ pub fn draw(frame: &mut Frame, app: &App) {
     draw_members(frame, app, members);
     let line = Line::from(Span::styled(format!(" {}", text::line(&app.status)), Style::default().fg(AMBER)));
     frame.render_widget(Paragraph::new(line).style(Style::default().bg(BG)), status);
-    let prompt = Paragraph::new(format!("› {}▌", app.input)).block(block("message · /help", app.focus == Focus::Input));
+    let target = app.room().map_or_else(|| "no room yet".to_string(), |room| format!("to {}", room_name(room)));
+    let input_title = format!("{target} · /help");
+    let prompt = Paragraph::new(format!("› {}▌", app.input)).block(block(&input_title, app.focus == Focus::Input));
     frame.render_widget(prompt, input);
+}
+
+/// A room's title, or its short id while it has none.
+fn room_name(room: &RoomInfo) -> String {
+    room.title.as_deref().map_or_else(|| text::short(&room.room_id, 8), text::line)
 }
 
 fn draw_top(frame: &mut Frame, app: &App, area: Rect) {
@@ -88,7 +95,7 @@ fn draw_rooms(frame: &mut Frame, app: &App, area: Rect) {
             let mine =
                 room.members.iter().any(|member| app.local_agents.contains_key(&member.device_id) && member.kind == DeviceKind::Agent);
             let unread = app.unread.get(&room.room_id).copied().unwrap_or(0);
-            let mut spans = vec![Span::raw(room.title.as_deref().map_or_else(|| text::short(&room.room_id, 8), text::line))];
+            let mut spans = vec![Span::raw(room_name(room))];
             if mine {
                 spans.push(Span::styled(" ◆", Style::default().fg(CYAN)));
             }
@@ -129,10 +136,11 @@ fn message_lines(app: &App, message: &ChatMessage) -> Vec<Line<'static>> {
 }
 
 fn draw_messages(frame: &mut Frame, app: &App, area: Rect) {
-    let mut title = app
-        .room()
-        .and_then(|room| room.title.as_deref().map(text::line))
-        .unwrap_or_else(|| "no room · /new <title> or /join <link>".into());
+    let mut title = match app.room() {
+        Some(room) if room.title.is_none() => format!("{} · /rename <title> to name it", room_name(room)),
+        Some(room) => room_name(room),
+        None => "no room · /new <title> or /join <link>".into(),
+    };
     if app.scroll_back > 0 {
         title.push_str(" · scrolled back, PgDn for newer");
     }

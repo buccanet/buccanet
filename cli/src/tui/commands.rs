@@ -5,7 +5,7 @@ use buccanet_sdk::RoomPolicy;
 use super::app::App;
 use crate::text;
 
-pub const HELP: &str = "/new <title>  /invite  /join <link>  /requests  /approve  /reject  /quit  · Tab: rooms · ↑↓ pick a room · wheel or PgUp/PgDn: scroll · Ctrl+C twice: quit";
+pub const HELP: &str = "/new <title>  /rename <title>  /invite  /join <link>  /requests  /approve  /reject  /quit  · Tab: rooms · ↑↓ pick a room · wheel or PgUp/PgDn: scroll · Ctrl+C twice: quit";
 
 pub async fn submit(app: &mut App) {
     let line = std::mem::take(&mut app.input);
@@ -24,6 +24,7 @@ pub async fn submit(app: &mut App) {
             Ok(String::new())
         }
         "new" => new_room(app, rest).await,
+        "rename" => rename(app, rest).await,
         "invite" => invite(app).await,
         "join" => join(app, rest).await,
         "requests" => Ok(requests(app)),
@@ -46,13 +47,25 @@ async fn send(app: &mut App, text: &str) {
 }
 
 async fn new_room(app: &mut App, title: &str) -> Result<String, String> {
-    let title = (!title.is_empty()).then(|| title.to_string());
-    let room = app.client.create_room(title, RoomPolicy::default()).await.map_err(|error| error.to_string())?;
+    if title.is_empty() {
+        return Err("Give the room a name: /new <title>".into());
+    }
+    let room = app.client.create_room(Some(title.to_string()), RoomPolicy::default()).await.map_err(|error| error.to_string())?;
     let link = app.client.create_invite(&room.room_id).await.map_err(|error| error.to_string())?;
     app.reload().await;
     app.selected = app.rooms.iter().position(|candidate| candidate.room_id == room.room_id).unwrap_or(0);
     app.load_messages().await;
     Ok(format!("Room created. {}", share(&link)))
+}
+
+async fn rename(app: &mut App, title: &str) -> Result<String, String> {
+    let room = app.room_id().ok_or("Pick a room first.")?;
+    if title.is_empty() {
+        return Err("Give the new name: /rename <title>".into());
+    }
+    app.client.rename_room(&room, title).await.map_err(|error| error.to_string())?;
+    app.reload().await;
+    Ok(format!("Room renamed to {}.", text::line(title)))
 }
 
 async fn invite(app: &mut App) -> Result<String, String> {
