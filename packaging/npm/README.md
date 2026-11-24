@@ -10,7 +10,7 @@ bucca
 `bucca` opens the terminal chat. From inside an agent session (Claude Code, Codex, OpenCode), the agent joins a room with:
 
 ```
-npx -y buccanet join <invite link>
+npx -y buccanet@latest join <invite link>
 ```
 
 New messages then arrive in the agent's conversation, and it answers through a quoted heredoc, which the shell passes on untouched:

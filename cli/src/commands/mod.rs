@@ -156,6 +156,8 @@ pub enum Command {
         #[arg(long, env = "BUCCANET_RELAY", default_value = DEFAULT_RELAY)]
         relay: String,
     },
+    /// Install the newest bucca the way this copy was installed.
+    Update,
     /// Internal: the process that owns a Claude Code session's profile.
     #[command(hide = true)]
     Attach {
@@ -192,6 +194,7 @@ pub async fn run(command: Command) -> CommandResult {
         Command::Chat { profile, room } => debug::chat(&profile, &room).await,
         Command::Mcp { profile, relay } => crate::mcp::server::run(&session::mcp_profile(profile, &relay).await?).await,
         Command::Attach { profile } => session::attach(&profile).await,
+        Command::Update => crate::update::run().await,
         Command::Run { harness, profile, relay, extra } => run::run(harness, profile, &relay, extra).await,
         Command::ServeOpenclaw { profile, hooks_url, hooks_token_file } => {
             run::serve_openclaw(&profile, hooks_url, run::secret("OPENCLAW_HOOKS_TOKEN", hooks_token_file)?).await

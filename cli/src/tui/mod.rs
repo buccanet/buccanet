@@ -33,6 +33,7 @@ pub async fn run(profile_name: &str, relay: &str) -> CommandResult {
     // The wheel scrolls the conversation instead of the terminal's own buffer.
     crossterm::execute!(std::io::stdout(), EnableMouseCapture)?;
     let mut keys = EventStream::new();
+    let mut update = Some(tokio::spawn(crate::update::notice()));
     let result = loop {
         if let Err(error) = terminal.draw(|frame| view::draw(frame, &app)) {
             break Err(error.into());
@@ -40,6 +41,12 @@ pub async fn run(profile_name: &str, relay: &str) -> CommandResult {
         tokio::select! {
             Some(Ok(event)) = keys.next() => on_terminal(&mut app, event).await,
             Some(event) = events.recv() => app.on_event(event).await,
+            Ok(notice) = async { update.as_mut().expect("guarded").await }, if update.is_some() => {
+                update = None;
+                if let Some(notice) = notice {
+                    app.status = notice;
+                }
+            }
         }
         if app.quit {
             break Ok(());

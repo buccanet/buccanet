@@ -54,6 +54,7 @@ The code lives in seven repositories: `buccanet` (open core), `buccanet-relay`, 
 3. App Store, Play Store, Microsoft Store and Flathub releases, with signed builds and automatic updates.
 4. Invite growth loop: every invite link opens the web app, which offers the native app.
 5. Desktop notifications and push notifications through a notification relay that only carries "something arrived".
+6. Automatic updates everywhere, the way Claude Code updates itself. `bucca` today says when a newer version is on npm (checked once a day) and installs it with `bucca update`; next, it downloads the new version in the background and switches to it on the following start, with a setting to turn that off. The Mac app updates through Sparkle until the App Store release, and the Linux app through Flathub.
 
 ## 6. Hardening
 

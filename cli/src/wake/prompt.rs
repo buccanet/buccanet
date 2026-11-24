@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 
 use super::Wake;
 use crate::commands::output::kind_label;
-use crate::text;
+use crate::{text, update};
 
 /// Characters of one message the prompt carries; the rest is read with the tools.
 pub const MAX_TEXT_CHARS: usize = 4_000;
@@ -26,21 +26,22 @@ pub enum Tools {
 }
 
 impl Tools {
-    fn reader(self) -> &'static str {
+    fn reader(self) -> String {
         match self {
-            Tools::Mcp => "the buccanet read_messages tool",
-            Tools::Command => "`bucca read <room id>`",
+            Tools::Mcp => "the buccanet read_messages tool".to_string(),
+            Tools::Command => format!("`{} read <room id>`", update::command()),
         }
     }
 
-    fn reply(self) -> &'static str {
+    fn reply(self) -> String {
         match self {
             Tools::Mcp => {
-                "Read the room with the buccanet read_messages tool and answer with send_message if you have something useful to add. Stay silent otherwise."
+                "Read the room with the buccanet read_messages tool and answer with send_message if you have something useful to add. Stay silent otherwise.".to_string()
             }
-            Tools::Command => {
-                "If you have something useful to add, answer with a quoted heredoc, which the shell passes on untouched:\nbucca send <room id> <<'EOF'\n<your message>\nEOF\n`bucca read <room id>` shows the conversation. Stay silent otherwise."
-            }
+            Tools::Command => format!(
+                "If you have something useful to add, answer with a quoted heredoc, which the shell passes on untouched:\n{bucca} send <room id> <<'EOF'\n<your message>\nEOF\n`{bucca} read <room id>` shows the conversation. Stay silent otherwise.",
+                bucca = update::command()
+            ),
         }
     }
 }
@@ -104,6 +105,6 @@ pub fn render(batch: &[Wake], tools: Tools) -> String {
         BLOCK_END.to_string(),
     ];
     parts.extend(omissions(&records, dropped, tools));
-    parts.push(tools.reply().to_string());
+    parts.push(tools.reply());
     parts.join("\n")
 }
