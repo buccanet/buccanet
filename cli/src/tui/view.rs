@@ -8,6 +8,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, List, ListItem, ListState, Paragraph, Wrap};
 
 use super::app::{App, Focus};
+use super::menu::{self, SlashCommand};
 use crate::text;
 
 const GREEN: Color = Color::Rgb(0, 255, 102);
@@ -57,19 +58,55 @@ fn member_color(app: &App, device_id: &str) -> Color {
 }
 
 pub fn draw(frame: &mut Frame, app: &App) {
-    let [top, main, status, input] =
-        Layout::vertical([Constraint::Length(1), Constraint::Min(5), Constraint::Length(1), Constraint::Length(3)]).areas(frame.area());
+    let menu = app.menu();
+    let menu_rows = menu.len().min(menu::VISIBLE) as u16;
+    let [top, main, menu_area, status, input] = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Min(5),
+        Constraint::Length(menu_rows),
+        Constraint::Length(1),
+        Constraint::Length(3),
+    ])
+    .areas(frame.area());
     let [rooms, messages, members] = Layout::horizontal([Constraint::Length(30), Constraint::Min(30), Constraint::Length(32)]).areas(main);
     draw_top(frame, app, top);
     draw_rooms(frame, app, rooms);
     draw_messages(frame, app, messages);
     draw_members(frame, app, members);
+    draw_menu(frame, &menu, app.picked, menu_area);
     let line = Line::from(Span::styled(format!(" {}", text::line(&app.status)), Style::default().fg(AMBER)));
     frame.render_widget(Paragraph::new(line).style(Style::default().bg(BG)), status);
     let target = app.room().map_or_else(|| "no room yet".to_string(), |room| format!("to {}", room_name(room)));
-    let input_title = format!("{target} · /help");
+    let input_title = format!("{target} · / for commands");
     let prompt = Paragraph::new(format!("› {}▌", app.input)).block(block(&input_title, app.focus == Focus::Input));
     frame.render_widget(prompt, input);
+}
+
+/// Width of the command column, so the descriptions line up.
+const COMMAND_WIDTH: usize = 20;
+
+/// The commands matching the input, the picked one highlighted, as Claude Code shows its own.
+fn draw_menu(frame: &mut Frame, menu: &[&SlashCommand], picked: usize, area: Rect) {
+    let first = menu::first_visible(picked);
+    let lines: Vec<Line> = menu
+        .iter()
+        .enumerate()
+        .skip(first)
+        .take(menu::VISIBLE)
+        .map(|(index, command)| {
+            let usage = if command.args.is_empty() { format!("/{}", command.name) } else { format!("/{} {}", command.name, command.args) };
+            let (marker, style) = if index == picked {
+                ("❯ ", Style::default().fg(GREEN).add_modifier(Modifier::BOLD))
+            } else {
+                ("  ", Style::default().fg(DIM))
+            };
+            Line::from(vec![
+                Span::styled(format!(" {marker}{usage:<COMMAND_WIDTH$}"), style),
+                Span::styled(command.about, Style::default().fg(if index == picked { CYAN } else { DIM })),
+            ])
+        })
+        .collect();
+    frame.render_widget(Paragraph::new(lines).style(Style::default().bg(BG)), area);
 }
 
 /// A room's title, or its short id while it has none.

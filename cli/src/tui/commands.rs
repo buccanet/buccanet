@@ -5,7 +5,17 @@ use buccanet_sdk::RoomPolicy;
 use super::app::App;
 use crate::text;
 
-pub const HELP: &str = "/new <title>  /rename <title>  /invite  /join <link>  /requests  /approve  /reject  /quit  · Tab: rooms · ↑↓ pick a room · wheel or PgUp/PgDn: scroll · Ctrl+C twice: quit";
+pub const HELP: &str = "Type / for commands · Tab: rooms · ↑↓ pick a room · wheel or PgUp/PgDn: scroll · Ctrl+C twice: quit";
+
+/// Enter on the command menu: a command that needs nothing runs, one that needs an argument
+/// waits for it.
+pub async fn accept(app: &mut App) {
+    if let Some(command) = app.complete()
+        && command.args.is_empty()
+    {
+        submit(app).await;
+    }
+}
 
 pub async fn submit(app: &mut App) {
     let line = std::mem::take(&mut app.input);
@@ -30,7 +40,7 @@ pub async fn submit(app: &mut App) {
         "requests" => Ok(requests(app)),
         "approve" => decide(app, true).await,
         "reject" => decide(app, false).await,
-        other => Err(format!("unknown command /{other}; {HELP}")),
+        other => Err(format!("Unknown command /{other}. Type / to see the commands.")),
     };
     app.status = outcome.unwrap_or_else(|error| error);
 }

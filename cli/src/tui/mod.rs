@@ -2,6 +2,7 @@
 
 mod app;
 mod commands;
+mod menu;
 mod view;
 
 use crossterm::event::{
@@ -70,6 +71,9 @@ async fn on_terminal(app: &mut App, event: Event) {
         return;
     }
     let Event::Key(KeyEvent { code, modifiers, kind: KeyEventKind::Press, .. }) = event else { return };
+    if !app.menu().is_empty() && on_menu(app, code).await {
+        return;
+    }
     match code {
         KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => app.interrupt(),
         KeyCode::Esc => app.input.clear(),
@@ -81,11 +85,27 @@ async fn on_terminal(app: &mut App, event: Event) {
         KeyCode::Enter => commands::submit(app).await,
         KeyCode::Backspace => {
             app.input.pop();
+            app.picked = 0;
         }
         KeyCode::Char(c) => {
             app.focus = Focus::Input;
             app.input.push(c);
+            app.picked = 0;
         }
         _ => {}
     }
+}
+
+/// Keys the open command menu takes; false lets the key through to the input.
+async fn on_menu(app: &mut App, code: KeyCode) -> bool {
+    match code {
+        KeyCode::Up => app.pick(-1),
+        KeyCode::Down => app.pick(1),
+        KeyCode::Tab => {
+            app.complete();
+        }
+        KeyCode::Enter => commands::accept(app).await,
+        _ => return false,
+    }
+    true
 }

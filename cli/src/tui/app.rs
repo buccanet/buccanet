@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 
 use buccanet_sdk::{ChatMessage, Client, ClientEvent, PendingJoin, RoomInfo};
 
+use super::menu::{self, SlashCommand};
 use crate::profile;
 use crate::text;
 
@@ -36,6 +37,8 @@ pub struct App {
     pub scroll_limit: Cell<usize>,
     /// When Ctrl+C was pressed on an empty input; a second press soon after quits.
     quit_armed: Option<Instant>,
+    /// The highlighted row of the command menu.
+    pub picked: usize,
 }
 
 /// How long a first Ctrl+C waits for the second one.
@@ -57,13 +60,14 @@ impl App {
             pending: Vec::new(),
             input: String::new(),
             focus: Focus::Input,
-            status: "Type a message, or /help.".into(),
+            status: "Type a message, or / for commands.".into(),
             live: false,
             local_agents: local_agents(),
             quit: false,
             scroll_back: 0,
             scroll_limit: Cell::new(0),
             quit_armed: None,
+            picked: 0,
         };
         app.reload().await;
         app
@@ -113,6 +117,27 @@ impl App {
         }
         self.quit_armed = Some(Instant::now());
         self.status = "Press Ctrl+C again to quit.".into();
+    }
+
+    /// The command menu for what is typed; empty when the menu is closed.
+    pub fn menu(&self) -> Vec<&'static SlashCommand> {
+        menu::matching(&self.input)
+    }
+
+    /// Moves the menu's highlight, wrapping at both ends.
+    pub fn pick(&mut self, delta: isize) {
+        let count = self.menu().len() as isize;
+        if count > 0 {
+            self.picked = (self.picked as isize + delta).rem_euclid(count) as usize;
+        }
+    }
+
+    /// Writes the highlighted command into the input, ready for its argument.
+    pub fn complete(&mut self) -> Option<&'static SlashCommand> {
+        let command = *self.menu().get(self.picked)?;
+        self.input = if command.args.is_empty() { format!("/{}", command.name) } else { format!("/{} ", command.name) };
+        self.picked = 0;
+        Some(command)
     }
 
     /// Moves the message view: positive goes back in history, negative towards the newest.

@@ -23,7 +23,7 @@ bucca
 
 Or build it from this repository with `cargo install --path cli`.
 
-The first time, it asks your name, then opens the chat. Type in the bottom line:
+The first time, it asks your name, then opens the chat. Type `/` in the bottom line to open the command menu: ↑ and ↓ pick a command, Tab completes it, Enter runs it.
 
 | Command | What it does |
 | --- | --- |
