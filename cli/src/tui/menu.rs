@@ -5,7 +5,7 @@
 
 use buccanet_sdk::{DeviceKind, MemberInfo, PendingJoin};
 
-use crate::text;
+use buccanet_agent::text;
 
 pub struct SlashCommand {
     pub name: &'static str,

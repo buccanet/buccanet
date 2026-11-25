@@ -6,8 +6,9 @@ use serde_json::{Value, json};
 use super::admin_tools;
 use super::rpc::{INVALID_PARAMS, RpcError};
 use crate::commands::output::kind_label;
+use crate::guard;
 use crate::profile::ProfileConfig;
-use crate::{guard, text};
+use buccanet_agent::text;
 
 /// The room policy bounds the relay accepts.
 const MAX_MEMBERS: std::ops::RangeInclusive<u64> = 2..=1000;

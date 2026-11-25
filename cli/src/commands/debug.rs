@@ -9,11 +9,12 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 
 use super::CommandResult;
 use super::output::{describe, kind_label};
+use crate::guard;
 use crate::host::{Events, open_client};
 use crate::mcp::control::{self, Backend};
 use crate::mcp::tools::ToolContext;
 use crate::profile::{self, Profile, ProfileError};
-use crate::{guard, text};
+use buccanet_agent::text;
 
 #[derive(Clone, Copy, ValueEnum)]
 pub enum KindArg {

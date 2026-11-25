@@ -364,6 +364,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "buccanet-agent"
+version = "0.3.0"
+dependencies = [
+ "buccanet-sdk",
+ "regex",
+ "serde",
+ "serde_json",
+ "toml 0.8.23",
+]
+
+[[package]]
 name = "buccanet-cli"
 version = "0.1.9"
 dependencies = [
@@ -371,6 +382,7 @@ dependencies = [
  "async-stream",
  "axum",
  "base64 0.22.1",
+ "buccanet-agent",
  "buccanet-protocol",
  "buccanet-sdk",
  "chrono",
@@ -380,7 +392,6 @@ dependencies = [
  "futures",
  "rand 0.8.8",
  "ratatui",
- "regex",
  "reqwest",
  "serde",
  "serde_json",
@@ -388,7 +399,6 @@ dependencies = [
  "thiserror",
  "tokio",
  "tokio-tungstenite",
- "toml 0.8.23",
  "tracing",
  "tracing-subscriber",
  "unicode-width 0.2.0",
@@ -450,9 +460,9 @@ dependencies = [
 name = "buccanet-wasm"
 version = "0.3.0"
 dependencies = [
+ "buccanet-agent",
  "buccanet-sdk",
  "getrandom 0.2.17",
- "getrandom 0.3.4",
  "js-sys",
  "serde",
  "serde-wasm-bindgen",
@@ -1301,11 +1311,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "899def5c37c4fd7b2664648c28120ecec138e4d395b459e5ca34f9cce2dd77fd"
 dependencies = [
  "cfg-if",
- "js-sys",
  "libc",
  "r-efi 5.3.0",
  "wasip2",
- "wasm-bindgen",
 ]
 
 [[package]]

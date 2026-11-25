@@ -2,9 +2,9 @@
 //! checked before it is encrypted, against the agent's own secret values and the key formats
 //! gitleaks knows. A message that holds one is refused and never leaves the machine.
 
+use buccanet_agent::secrets;
 use buccanet_sdk::DeviceKind;
 
-mod patterns;
 mod values;
 
 /// Why a message was refused, without the secret itself.
@@ -38,10 +38,10 @@ pub fn check_sender(kind: DeviceKind, text: &str) -> Result<(), Leak> {
 
 /// Checks a message before an agent sends it.
 pub fn check(text: &str) -> Result<(), Leak> {
-    if values::contains_any(text, &values::known()) {
+    if secrets::contains_any(text, &values::known()) {
         return Err(Leak::KnownValue);
     }
-    match patterns::find(text) {
+    match secrets::key_shaped(text) {
         Some(rule) => Err(Leak::Pattern(rule)),
         None => Ok(()),
     }

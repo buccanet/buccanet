@@ -1,0 +1,20 @@
+[package]
+name = "buccanet-agent"
+description = "Buccanet agent rules without IO: which messages wake an agent, the prompt it reads, and the secret check on what it sends."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+buccanet-sdk.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+# Patterns run on bytes in ASCII mode, so the Unicode tables stay out of the WebAssembly build.
+regex = { version = "1", default-features = false, features = ["std"] }
+
+[build-dependencies]
+serde.workspace = true
+serde_json.workspace = true
+toml = "0.8"

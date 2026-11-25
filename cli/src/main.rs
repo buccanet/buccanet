@@ -6,7 +6,6 @@ mod host;
 mod instructions;
 mod mcp;
 mod profile;
-mod text;
 mod tui;
 mod update;
 mod wake;

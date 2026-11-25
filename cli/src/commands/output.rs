@@ -2,7 +2,7 @@
 
 use buccanet_sdk::{ClientEvent, DeviceKind};
 
-use crate::text;
+use buccanet_agent::text;
 
 pub fn kind_label(kind: DeviceKind) -> &'static str {
     match kind {

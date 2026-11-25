@@ -12,13 +12,13 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 buccanet-sdk.workspace = true
+buccanet-agent.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 js-sys = "0.3"
 serde-wasm-bindgen = "0.6"
-getrandom = { version = "0.3", features = ["wasm_js"] }
 getrandom02 = { package = "getrandom", version = "0.2", features = ["js"] }
 
 [package.metadata.wasm-pack.profile.release]

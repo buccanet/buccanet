@@ -7,7 +7,8 @@ use serde_json::{Value, json};
 use super::rpc::{INVALID_PARAMS, RpcError};
 use super::tools::{ToolContext, ToolOutput, arg, tool, with_room};
 use crate::commands::output::kind_label;
-use crate::{guard, text};
+use crate::guard;
+use buccanet_agent::text;
 
 const NOT_ALLOWED: &str = "Your owner has not enabled agent approvals. Ask them to do this from the Buccanet app or `bucca`.";
 

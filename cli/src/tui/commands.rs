@@ -5,7 +5,7 @@ use buccanet_sdk::{MemberInfo, PendingJoin, RoomPolicy, default_rules, invite_me
 use super::app::App;
 use super::external::External;
 use crate::commands::output::kind_label;
-use crate::text;
+use buccanet_agent::text;
 
 pub const HELP: &str = "Type / for commands · Tab: rooms · ↑↓ pick a room · wheel or PgUp/PgDn: scroll · Ctrl+C twice: quit";
 

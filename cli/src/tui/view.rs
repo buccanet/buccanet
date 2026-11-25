@@ -10,7 +10,7 @@ use ratatui::widgets::{Block, BorderType, Borders, List, ListItem, ListState, Pa
 use super::app::{App, Focus};
 use super::menu::{self, MenuItem};
 use super::selection::Panes;
-use crate::text;
+use buccanet_agent::text;
 
 const GREEN: Color = Color::Rgb(0, 255, 102);
 const DIM: Color = Color::Rgb(0, 130, 60);

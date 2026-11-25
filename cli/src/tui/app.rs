@@ -12,7 +12,7 @@ use super::external::External;
 use super::menu::{self, MenuItem, RoomContext};
 use super::selection::{Panes, Selection};
 use crate::profile;
-use crate::text;
+use buccanet_agent::text;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Focus {

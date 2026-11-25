@@ -15,10 +15,10 @@ use crate::commands::CommandResult;
 use crate::commands::output::kind_label;
 use crate::host::{Events, open_client};
 use crate::profile::{self, Profile, ProfileError};
-use crate::text;
 use crate::wake::briefing::Briefer;
 use crate::wake::claude_inbox::ClaudeInbox;
 use crate::wake::{Wake, next_batch, prompt, socket, wakes};
+use buccanet_agent::text;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Era {
@@ -159,7 +159,7 @@ impl Server {
     }
 
     /// A message meant for the agent: announced on the channel and to event subscribers, then woken on.
-    async fn deliver_message(&self, socket: &std::path::Path, briefer: &mut Briefer, message: &ChatMessage) {
+    async fn deliver_message(&self, socket: &std::path::Path, briefer: &mut Briefer, message: &ChatMessage, me: &str) {
         let name = text::line(&message.author_name);
         let content = format!("{name} ({}): {}", kind_label(message.author_kind), text::indented(&message.text));
         let meta = json!({
@@ -172,7 +172,7 @@ impl Server {
             Ok(ctx) => ctx.client.room(&message.room_id).await.ok().and_then(|room| room.title),
             Err(_) => None,
         };
-        self.briefed_wake(socket, briefer, Wake::message(message, title)).await;
+        self.briefed_wake(socket, briefer, Wake::message(message, title, me)).await;
     }
 
     /// Publishes every message to event subscribers, and wakes the agent for the ones meant for it.
@@ -183,7 +183,7 @@ impl Server {
                     self.hub.publish_message(&message);
                 }
                 ClientEvent::Message { message } if !message.own && !message.shared => {
-                    self.deliver_message(&socket, &mut briefer, &message).await;
+                    self.deliver_message(&socket, &mut briefer, &message, &me).await;
                 }
                 ClientEvent::JoinedRoom { room } => {
                     let detail = format!("You are now a member of room {}. Read it with read_messages.", room.room_id);

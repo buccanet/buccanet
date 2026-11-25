@@ -8,8 +8,6 @@ use crate::profile;
 
 /// Values shorter than this are too common to tell apart from ordinary text.
 const MIN_LENGTH: usize = 8;
-/// A long value is also caught when a piece of this length appears.
-const PIECE_LENGTH: usize = 16;
 
 const SECRET_NAME_PARTS: [&str; 12] =
     ["KEY", "TOKEN", "SECRET", "PASSWORD", "PASSWD", "PWD", "CREDENTIAL", "AUTH", "PRIVATE", "DSN", "COOKIE", "DATABASE_URL"];
@@ -64,34 +62,13 @@ pub fn known() -> Vec<String> {
     values
 }
 
-/// Every run of `PIECE_LENGTH` characters inside a long value.
-fn pieces(value: &str) -> impl Iterator<Item = &str> {
-    value
-        .char_indices()
-        .map(|(start, _)| start)
-        .filter(move |&start| value.len() >= start + PIECE_LENGTH && value.is_char_boundary(start + PIECE_LENGTH))
-        .map(move |start| &value[start..start + PIECE_LENGTH])
-}
-
-/// Whether `text` holds one of `values`, whole or, for a long value, a long enough piece of it.
-pub fn contains_any(text: &str, values: &[String]) -> bool {
-    values.iter().any(|value| {
-        let long = value.len() >= PIECE_LENGTH + 4;
-        text.contains(value.as_str()) || (long && pieces(value).any(|piece| text.contains(piece)))
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn reads_env_files_and_catches_pieces_of_long_values() {
+    fn reads_env_files_and_secret_names() {
         assert_eq!(dotenv_values("# note\nA=\"one two three\"\nB='x'\n"), vec!["one two three", "x"]);
-        let values = vec!["sk-live-0123456789abcdefghijklmnop".to_string()];
-        assert!(contains_any("here: sk-live-0123456789abcdefghijklmnop", &values));
-        assert!(contains_any("half of it 456789abcdefghijk is enough", &values));
-        assert!(!contains_any("nothing secret here", &values));
         assert!(looks_secret("openai_api_key") && !looks_secret("HOME"));
     }
 }

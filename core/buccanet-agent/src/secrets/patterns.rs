@@ -1,24 +1,20 @@
-//! Secrets recognized by their shape, with the rules of gitleaks (MIT, `cli/assets/gitleaks.toml`,
-//! release v8.30.1): each rule is a regular expression, the keywords that must appear for it to
-//! be tried, and the randomness the matched secret must reach.
+//! Secrets recognized by their shape, with the rules of gitleaks (MIT, `assets/gitleaks.toml`,
+//! release v8.30.1, turned into JSON by `build.rs`): each rule is a regular expression, the
+//! keywords that must appear for it to be tried, and the randomness the matched secret must
+//! reach. Patterns read `\w`, `\d`, `\s` and case in ASCII, as keys are written.
 
 use std::sync::OnceLock;
 
-use regex::Regex;
+use regex::bytes::{Regex, RegexBuilder};
 use serde::Deserialize;
 
-const GITLEAKS: &str = include_str!("../../assets/gitleaks.toml");
-
-#[derive(Deserialize)]
-struct Config {
-    rules: Vec<RawRule>,
-}
+const GITLEAKS: &str = include_str!(concat!(env!("OUT_DIR"), "/gitleaks-rules.json"));
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct RawRule {
     id: String,
-    regex: Option<String>,
+    regex: String,
     entropy: Option<f64>,
     #[serde(default)]
     keywords: Vec<String>,
@@ -37,13 +33,13 @@ pub struct Rule {
 pub fn rules() -> &'static [Rule] {
     static RULES: OnceLock<Vec<Rule>> = OnceLock::new();
     RULES.get_or_init(|| {
-        let config: Config = toml::from_str(GITLEAKS).expect("the bundled gitleaks rules parse");
-        config.rules.into_iter().filter_map(compile).collect()
+        let raw: Vec<RawRule> = serde_json::from_str(GITLEAKS).expect("the bundled gitleaks rules parse");
+        raw.into_iter().filter_map(compile).collect()
     })
 }
 
 fn compile(raw: RawRule) -> Option<Rule> {
-    let regex = Regex::new(raw.regex.as_deref()?).ok()?;
+    let regex = RegexBuilder::new(&raw.regex).unicode(false).build().ok()?;
     let keywords = raw.keywords.into_iter().map(|keyword| keyword.to_lowercase()).collect();
     Some(Rule { id: raw.id, regex, entropy: raw.entropy, keywords, secret_group: raw.secret_group })
 }
@@ -69,10 +65,10 @@ impl Rule {
         if !self.keywords.is_empty() && !self.keywords.iter().any(|keyword| lowered.contains(keyword.as_str())) {
             return false;
         }
-        self.regex.captures_iter(text).any(|captures| {
+        self.regex.captures_iter(text.as_bytes()).any(|captures| {
             let group = self.secret_group.unwrap_or(if captures.len() > 1 { 1 } else { 0 });
-            let secret = captures.get(group).or_else(|| captures.get(0)).map_or("", |found| found.as_str());
-            self.entropy.is_none_or(|threshold| entropy(secret) >= threshold)
+            let secret = captures.get(group).or_else(|| captures.get(0)).map_or(&b""[..], |found| found.as_bytes());
+            self.entropy.is_none_or(|threshold| entropy(&String::from_utf8_lossy(secret)) >= threshold)
         })
     }
 }
