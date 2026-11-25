@@ -12,26 +12,47 @@ use std::time::Duration;
 
 use buccanet_agent::text;
 use buccanet_protocol::api::codes;
-use buccanet_sdk::{Client, ClientEvent, PendingJoin, RoomPolicy, SdkError};
+use buccanet_sdk::{Client, ClientEvent, DeviceKind, PendingJoin, RoomPolicy, SdkError};
 
 use super::CommandResult;
+use super::setup::{NewProfile, create_profile};
 use crate::host::open_client;
 use crate::mcp::control;
-use crate::profile::Profile;
+use crate::profile::{self, Profile};
 use admission::{JoinPace, Verdict, decide};
 use ledger::{Ledger, blocklist, now_ms};
 
 /// How often waiting requests, the blocklist, idle members and the reset are checked.
 const TICK: Duration = Duration::from_secs(10);
+/// How long the service waits before asking the relay again to list its room.
+const LISTING_RETRY: Duration = Duration::from_secs(60);
 
+#[derive(clap::Args)]
 pub struct PublicOptions {
+    #[arg(long, short)]
     pub profile: String,
+    /// The name of the profile when the service creates it on its first start.
+    #[arg(long, default_value = "Buccanet")]
+    pub name: String,
+    #[arg(long, env = "BUCCANET_RELAY", default_value = super::DEFAULT_RELAY)]
+    pub relay: String,
+    /// The listing's slug, the path segment people find the room by.
+    #[arg(long)]
     pub slug: String,
+    #[arg(long, default_value = "Buccanet public room")]
     pub title: String,
+    #[arg(long, default_value = "People and their AI agents, in one end to end encrypted room anyone can join.")]
     pub description: String,
+    #[arg(long, default_value_t = 200, value_parser = clap::value_parser!(u32).range(2..=1000))]
     pub max_members: u32,
+    /// Joins admitted in one minute at most; the others wait for the next minute.
+    #[arg(long, default_value_t = 10, value_parser = clap::value_parser!(u32).range(1..))]
     pub joins_per_minute: u32,
+    /// Remove a member who joined this long ago and wrote nothing for as long: 30s, 90m, 24h, 7d.
+    #[arg(long, default_value = "24h", value_parser = parse_duration)]
     pub idle: Duration,
+    /// Move the listing to a fresh room this often (7d, for one); off when not given.
+    #[arg(long, value_parser = parse_duration)]
     pub reset_every: Option<Duration>,
 }
 
@@ -71,7 +92,26 @@ struct Door {
     room_id: String,
 }
 
+/// Creates the service's profile on its first start, as a human device: it never writes, so it
+/// never counts against the agents' burst.
+async fn ensure_profile(options: &PublicOptions) -> CommandResult {
+    if profile::exists(&options.profile) {
+        return Ok(());
+    }
+    let spec = NewProfile {
+        profile: &options.profile,
+        display: &options.name,
+        kind: DeviceKind::Human,
+        relay: &options.relay,
+        owner_profile: None,
+    };
+    let config = create_profile(spec).await?;
+    println!("created the profile {} as device {}", options.profile, config.device_id);
+    Ok(())
+}
+
 pub async fn serve(options: PublicOptions) -> CommandResult {
+    ensure_profile(&options).await?;
     let profile = Profile::open(&options.profile)?;
     let (client, mut events) = open_client(&profile).await?;
     client.sync().await?;
@@ -79,7 +119,7 @@ pub async fn serve(options: PublicOptions) -> CommandResult {
     let ledger = Ledger::load(&profile.dir)?;
     let pace = JoinPace::new(options.joins_per_minute);
     let mut door = Door { client, dir: profile.dir.clone(), options, ledger, pace, room_id: String::new() };
-    door.open_room().await?;
+    door.open_until_listed().await?;
     let follower = door.client.clone();
     tokio::spawn(async move { follower.run().await });
     let mut tick = tokio::time::interval(TICK);
@@ -95,9 +135,24 @@ pub async fn serve(options: PublicOptions) -> CommandResult {
 }
 
 impl Door {
+    /// Opens the room, and while the relay does not list rooms for this device yet, says which
+    /// device to add to its `LISTING_ADMINS` and asks again every minute.
+    async fn open_until_listed(&mut self) -> CommandResult {
+        loop {
+            match self.open_room().await {
+                Err(error) if error.relay_code() == Some(codes::FORBIDDEN) => {
+                    let device = self.client.device_id();
+                    eprintln!("the relay does not list rooms for this device yet: add {device} to its LISTING_ADMINS ({error})");
+                    tokio::time::sleep(LISTING_RETRY).await;
+                }
+                outcome => return outcome.map_err(Into::into),
+            }
+        }
+    }
+
     /// Serves the room of the ledger while this device administers it, or creates one, and
     /// points the listing at it.
-    async fn open_room(&mut self) -> CommandResult {
+    async fn open_room(&mut self) -> Result<(), SdkError> {
         let kept = match self.ledger.room_id.clone() {
             Some(room_id) => self.client.room(&room_id).await.ok().filter(|room| room.admin).map(|room| room.room_id),
             None => None,

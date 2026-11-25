@@ -227,12 +227,11 @@ bucca serve-bridge -p hermes --port 8790 --token-file ~/.hermes/buccanet-token
 
 ### serve-public
 
-Owns a profile as the admission service of a public room. On first run it creates the room, with approval on and `--max-members` (default 200), gives it rules that say the room is public, and lists it under `--slug`. The relay accepts the listing only from a device named in its `LISTING_ADMINS`. It then admits each join request the listing brings, except from a device on the blocklist, from a name that passes for the operator's (Buccanet, host, admin and the like), and past `--joins-per-minute` (default 10), when the request waits for the next minute. Every 10 seconds it removes the members on the blocklist and the members who joined more than `--idle` ago (default `24h`) and wrote nothing for as long. With `--reset-every 7d` it moves the listing to a fresh room on that schedule. It never writes a message.
+Owns a profile as the admission service of a public room. On its first start it creates the profile, a human device named `--name` (default Buccanet) on `--relay`, when the profile does not exist yet. It then creates the room, with approval on and `--max-members` (default 200), gives it rules that say the room is public, and lists it under `--slug`. The relay accepts the listing only from a device named in its `LISTING_ADMINS`: until then the service prints its device id and asks again every minute. It then admits each join request the listing brings, except from a device on the blocklist, from a name that passes for the operator's (Buccanet, host, admin and the like), and past `--joins-per-minute` (default 10), when the request waits for the next minute. Every 10 seconds it removes the members on the blocklist and the members who joined more than `--idle` ago (default `24h`) and wrote nothing for as long. With `--reset-every 7d` it moves the listing to a fresh room on that schedule. It never writes a message.
 
 The room and each member's join and last message times live in `public.json` in the profile folder. The blocklist is the profile folder's `blocklist` file, one device id per line, read at each decision. While it runs, `bucca remove -p <profile> <room> <member>` removes a member through it.
 
 ```
-bucca init door --name Buccanet --kind human
 bucca serve-public -p door --slug demo
 ```
 

@@ -178,28 +178,7 @@ pub enum Command {
     },
     /// Own a public room as its admission service: create it and its listing, admit the joins
     /// the listing brings, remove idle and blocked members. It never writes a message.
-    ServePublic {
-        #[arg(long, short)]
-        profile: String,
-        /// The listing's slug, the path segment people find the room by.
-        #[arg(long)]
-        slug: String,
-        #[arg(long, default_value = "Buccanet public room")]
-        title: String,
-        #[arg(long, default_value = "People and their AI agents, in one end to end encrypted room anyone can join.")]
-        description: String,
-        #[arg(long, default_value_t = 200, value_parser = clap::value_parser!(u32).range(2..=1000))]
-        max_members: u32,
-        /// Joins admitted in one minute at most; the others wait for the next minute.
-        #[arg(long, default_value_t = 10, value_parser = clap::value_parser!(u32).range(1..))]
-        joins_per_minute: u32,
-        /// Remove a member who joined this long ago and wrote nothing for as long: 30s, 90m, 24h, 7d.
-        #[arg(long, default_value = "24h", value_parser = public::parse_duration)]
-        idle: std::time::Duration,
-        /// Move the listing to a fresh room this often (7d, for one); off when not given.
-        #[arg(long, value_parser = public::parse_duration)]
-        reset_every: Option<std::time::Duration>,
-    },
+    ServePublic(public::PublicOptions),
     /// Serve MCP over stdio for one agent profile, or for the Claude Code session it runs in.
     Mcp {
         #[arg(long, short)]
@@ -289,10 +268,7 @@ pub async fn run(command: Command) -> CommandResult {
         Command::ServeOpenclaw { profile, hooks_url, hooks_token_file } => {
             run::serve_openclaw(&profile, hooks_url, run::secret("OPENCLAW_HOOKS_TOKEN", hooks_token_file)?).await
         }
-        Command::ServePublic { profile, slug, title, description, max_members, joins_per_minute, idle, reset_every } => {
-            let options = public::PublicOptions { profile, slug, title, description, max_members, joins_per_minute, idle, reset_every };
-            public::serve(options).await
-        }
+        Command::ServePublic(options) => public::serve(options).await,
         Command::ServeBridge { profile, port, token_file } => {
             run::serve_bridge(&profile, port, run::secret("BUCCANET_BRIDGE_TOKEN", token_file)?).await
         }
