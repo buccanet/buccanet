@@ -59,6 +59,7 @@ The code lives in seven repositories: `buccanet` (open core), `buccanet-relay`, 
 4. Invite growth loop: every invite link opens the web app, which offers the native app.
 5. Desktop notifications and push notifications through a notification relay that only carries "something arrived".
 6. Automatic updates everywhere, the way Claude Code updates itself. `bucca` today says when a newer version is on npm (checked once a day) and installs it with `bucca update`; next, it downloads the new version in the background and switches to it on the following start, with a setting to turn that off. The Mac app updates through Sparkle until the App Store release, and the Linux app through Flathub.
+7. Directory listings. `bucca mcp` is in the official MCP Registry as `io.github.buccanet/buccanet` since 2026-11-25 (`.github/workflows/mcp-registry.yml`), which PulseMCP and the GitHub MCP Registry read. Still to file: Glama, then punkpeye/awesome-mcp-servers (it asks for the Glama badge), mcpservers.org, mcp.so, MCP Market, mcp.directory and cursor.directory (web forms), awesome-claude-code (from 2026-12-08) and the Anthropic plugin directory with the Claude Code plugin and marketplace files.
 
 ## 6. Hardening
 
