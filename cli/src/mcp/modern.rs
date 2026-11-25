@@ -6,7 +6,7 @@ use super::control::Backend;
 use super::events::{self, EventHub};
 use super::rpc::{INVALID_PARAMS, METHOD_NOT_FOUND, Out, RpcError, UNSUPPORTED_VERSION};
 use super::tools;
-use super::{INSTRUCTIONS, MODERN_VERSION, SERVER_NAME};
+use super::{MODERN_VERSION, SERVER_NAME, instructions};
 
 const VERSION_META: &str = "io.modelcontextprotocol/protocolVersion";
 const TOOLS_TTL_MS: u64 = 300_000;
@@ -34,22 +34,23 @@ fn discover() -> Value {
     json!({
         "supportedVersions": [MODERN_VERSION],
         "capabilities": { "tools": {}, "extensions": { "io.modelcontextprotocol/events": {} } },
-        "instructions": INSTRUCTIONS,
+        "instructions": instructions(),
         "ttlMs": TOOLS_TTL_MS,
         "cacheScope": "private",
     })
 }
 
+/// One JSON-RPC request as the client sent it.
+pub struct Request<'a> {
+    pub id: &'a Value,
+    pub method: &'a str,
+    pub params: &'a Value,
+}
+
 /// Answers one modern request. `events/stream` and `subscriptions/listen` stay open: they
 /// answer nothing now and deliver notifications until the client cancels.
-pub async fn handle(
-    backend: &Backend,
-    hub: &EventHub,
-    out: &Out,
-    id: &Value,
-    method: &str,
-    params: &Value,
-) -> Result<Option<Value>, RpcError> {
+pub async fn handle(backend: &Backend, hub: &EventHub, out: &Out, request: Request<'_>) -> Result<Option<Value>, RpcError> {
+    let Request { id, method, params } = request;
     check_version(params)?;
     let result = match method {
         "server/discover" => discover(),

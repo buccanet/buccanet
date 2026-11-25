@@ -1,9 +1,10 @@
 //! What the input line does: text is a message, `/word` is a command.
 
-use buccanet_sdk::{MemberInfo, RoomPolicy, default_rules, invite_message};
+use buccanet_sdk::{MemberInfo, PendingJoin, RoomPolicy, default_rules, invite_message};
 
 use super::app::App;
 use super::external::External;
+use crate::commands::output::kind_label;
 use crate::text;
 
 pub const HELP: &str = "Type / for commands · Tab: rooms · ↑↓ pick a room · wheel or PgUp/PgDn: scroll · Ctrl+C twice: quit";
@@ -41,9 +42,9 @@ pub async fn submit(app: &mut App) {
         }
         "invite" => invite(app).await,
         "join" => join(app, rest).await,
-        "requests" => Ok(requests(app)),
-        "approve" => decide(app, true).await,
-        "reject" => decide(app, false).await,
+        "requests" => Ok(requests(app).await),
+        "approve" => decide(app, rest, true).await,
+        "reject" => decide(app, rest, false).await,
         "remove" => remove(app, rest).await,
         "admin" => set_admin(app, rest, true).await,
         "unadmin" => set_admin(app, rest, false).await,
@@ -169,22 +170,51 @@ async fn join(app: &mut App, link: &str) -> Result<String, String> {
     Ok(format!("Asked to join {}. Waiting for an admin.", text::short(&pending.room_id, 8)))
 }
 
-fn requests(app: &App) -> String {
+async fn requests(app: &mut App) -> String {
+    app.refresh_pending().await;
     if app.pending.is_empty() {
-        return "No pending request.".into();
+        return "Nobody is waiting to join.".into();
     }
-    app.pending.iter().map(|request| format!("{} ({:?})", text::line(&request.name), request.kind)).collect::<Vec<_>>().join(", ")
+    let waiting = app
+        .pending
+        .iter()
+        .map(|request| format!("{} ({}) in {}", text::line(&request.name), kind_label(request.kind), app.room_title(&request.room_id)));
+    format!("Waiting to join: {}.", waiting.collect::<Vec<_>>().join("; "))
 }
 
-async fn decide(app: &mut App, approve: bool) -> Result<String, String> {
-    let request = app.pending.first().cloned().ok_or("No pending request.")?;
+/// The request `/approve` or `/reject` names in the open room: its request id or part of a name,
+/// or nothing when only one is waiting.
+fn pick_request(app: &App, wanted: &str, command: &str) -> Result<PendingJoin, String> {
+    let waiting = app.pending_here();
+    let lowered = wanted.to_lowercase();
+    let by_id = waiting.iter().copied().find(|request| request.request_id == wanted);
+    let by_name: Vec<_> = waiting.iter().copied().filter(|request| request.name.to_lowercase().contains(&lowered)).collect();
+    match (by_id, by_name.as_slice()) {
+        _ if waiting.is_empty() => Err(nobody_waiting_here(app)),
+        _ if wanted.is_empty() && waiting.len() > 1 => Err(format!("Several are waiting: pick one in the list with /{command} <name>.")),
+        (Some(request), _) | (None, &[request]) => Ok(request.clone()),
+        (None, []) => Err(format!("Nobody named {} is waiting to join this room.", text::line(wanted))),
+        (None, _) => Err(format!("Several people waiting match {}: pick one in the list.", text::line(wanted))),
+    }
+}
+
+fn nobody_waiting_here(app: &App) -> String {
+    match app.pending.len() {
+        0 => "Nobody is waiting to join.".into(),
+        elsewhere => format!("Nobody is waiting to join this room. {elsewhere} waiting in other rooms: /requests."),
+    }
+}
+
+async fn decide(app: &mut App, wanted: &str, approve: bool) -> Result<String, String> {
+    app.refresh_pending().await;
+    let request = pick_request(app, wanted, if approve { "approve" } else { "reject" })?;
     let result = if approve {
         app.client.approve(&request.room_id, &request.request_id).await
     } else {
         app.client.reject(&request.room_id, &request.request_id).await
     };
+    app.refresh_pending().await;
     result.map_err(|error| error.to_string())?;
-    app.pending.remove(0);
     app.reload().await;
     Ok(format!("{} {}.", text::line(&request.name), if approve { "joined" } else { "was refused" }))
 }

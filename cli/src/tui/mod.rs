@@ -17,7 +17,7 @@ use crossterm::terminal::supports_keyboard_enhancement;
 use futures::StreamExt;
 
 use crate::commands::{CommandResult, setup};
-use crate::host::open_client;
+use crate::host::{Events, open_client};
 use crate::profile::{self, Profile};
 use app::App;
 
@@ -40,22 +40,24 @@ fn release_input() {
     let _ = crossterm::execute!(out, DisableBracketedPaste, DisableMouseCapture);
 }
 
-pub async fn run(profile_name: &str, relay: &str) -> CommandResult {
+/// Opens the profile, creating it on first run, and starts following its rooms. The returned
+/// profile holds the lock: keep it for as long as the UI runs.
+async fn open_app(profile_name: &str, relay: &str) -> Result<(Profile, App, Events), Box<dyn std::error::Error>> {
     if !profile::exists(profile_name) {
         setup::onboard(profile_name, relay).await?;
     }
     let profile = Profile::open(profile_name)?;
-    let (client, mut events) = open_client(&profile).await?;
+    let (client, events) = open_client(&profile).await?;
     client.sync().await?;
     crate::mcp::control::serve_profile(&profile, &client)?;
     let follower = client.clone();
     tokio::spawn(async move { follower.run().await });
-    let mut app = App::new(client.clone(), profile_name.to_string()).await;
-    for room in app.rooms.clone() {
-        if room.admin {
-            app.pending.extend(client.pending_requests(&room.room_id).await.unwrap_or_default());
-        }
-    }
+    let app = App::new(client, profile_name.to_string()).await;
+    Ok((profile, app, events))
+}
+
+pub async fn run(profile_name: &str, relay: &str) -> CommandResult {
+    let (_profile, mut app, mut events) = open_app(profile_name, relay).await?;
     let mut terminal = ratatui::try_init().map_err(|error| format!("the terminal UI needs an interactive terminal: {error}"))?;
     capture_input();
     let mut keys = EventStream::new();

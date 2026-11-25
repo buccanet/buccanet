@@ -136,30 +136,6 @@ pub async fn join(name: &str, link: &str) -> CommandResult {
     Ok(())
 }
 
-pub async fn requests(name: &str, room: &str) -> CommandResult {
-    let (_profile, client, _) = open(name).await?;
-    let room = resolve_room(&client, room).await?;
-    for request in client.pending_requests(&room).await? {
-        let (id, name, device) = (text::line(&request.request_id), text::line(&request.name), text::line(&request.device_id));
-        println!("{id} {name} ({}) device {device}", kind_label(request.kind));
-    }
-    Ok(())
-}
-
-pub async fn approve(name: &str, room: &str, request: &str) -> CommandResult {
-    let (_profile, client, _) = open(name).await?;
-    let room = resolve_room(&client, room).await?;
-    client.approve(&room, request).await?;
-    Ok(())
-}
-
-pub async fn reject(name: &str, room: &str, request: &str) -> CommandResult {
-    let (_profile, client, _) = open(name).await?;
-    let room = resolve_room(&client, room).await?;
-    client.reject(&room, request).await?;
-    Ok(())
-}
-
 pub async fn send(name: &str, room: &str, text: &str) -> CommandResult {
     let seq = match access(name).await? {
         Access::Direct(client) => {
@@ -172,6 +148,17 @@ pub async fn send(name: &str, room: &str, text: &str) -> CommandResult {
     };
     println!("{seq}");
     Ok(())
+}
+
+/// Lists a room's join requests; a profile held by another process answers through it.
+pub async fn requests(name: &str, room: &str) -> CommandResult {
+    tool(name, "list_requests", json!({ "roomId": room })).await
+}
+
+/// Lets a join request in, or turns it down; a profile held by another process acts through it.
+pub async fn decide(name: &str, room: &str, request: &str, approve: bool) -> CommandResult {
+    let action = if approve { "approve_member" } else { "reject_member" };
+    tool(name, action, json!({ "roomId": room, "requestId": request })).await
 }
 
 /// Runs one MCP tool for a profile, on its device or through the process that owns it, and

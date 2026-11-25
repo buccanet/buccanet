@@ -12,13 +12,18 @@ use crate::{guard, text};
 const NOT_ALLOWED: &str = "Your owner has not enabled agent approvals. Ask them to do this from the Buccanet app or `bucca`.";
 
 pub fn definitions(room: &Value) -> Vec<Value> {
+    let rules = tool(
+        "set_room_rules",
+        "Replace the rules of a room you administer; every member receives them. Refused unless your owner enabled agent approvals.",
+        json!({ "roomId": room, "text": { "type": "string", "description": "The new rules, in Markdown" } }),
+        &["roomId", "text"],
+    );
+    std::iter::once(rules).chain(request_tools(room)).chain(member_tools(room)).collect()
+}
+
+/// The tools that read and decide join requests.
+fn request_tools(room: &Value) -> Vec<Value> {
     vec![
-        tool(
-            "set_room_rules",
-            "Replace the rules of a room you administer; every member receives them. Refused unless your owner enabled agent approvals.",
-            json!({ "roomId": room, "text": { "type": "string", "description": "The new rules, in Markdown" } }),
-            &["roomId", "text"],
-        ),
         tool("list_requests", "List pending join requests of a room you administer.", json!({ "roomId": room }), &["roomId"]),
         tool(
             "approve_member",
@@ -31,6 +36,21 @@ pub fn definitions(room: &Value) -> Vec<Value> {
             "Refuse a pending join request.",
             json!({ "roomId": room, "requestId": { "type": "string" } }),
             &["roomId", "requestId"],
+        ),
+    ]
+}
+
+/// The tools that remove members and change who administers the room.
+fn member_tools(room: &Value) -> Vec<Value> {
+    vec![
+        tool(
+            "remove_member",
+            "Remove a member from a room you administer. Refused unless your owner enabled agent approvals.",
+            json!({
+                "roomId": room,
+                "member": { "type": "string", "description": "The member's name, device id or a unique prefix of its device id" },
+            }),
+            &["roomId", "member"],
         ),
         tool(
             "set_admin",
@@ -57,6 +77,10 @@ pub async fn call(ctx: &ToolContext, name: &str, args: &Value) -> Result<ToolOut
             let request = arg(args, "requestId")?.to_string();
             let approve = name == "approve_member";
             with_room(ctx, args, move |ctx, room| Box::pin(decide(ctx, room, request, approve))).await
+        }
+        "remove_member" => {
+            let member = arg(args, "member")?.to_string();
+            with_room(ctx, args, move |ctx, room| Box::pin(remove_member(ctx, room, member))).await
         }
         "set_admin" => {
             let member = arg(args, "member")?.to_string();
@@ -94,7 +118,10 @@ async fn list_requests(ctx: &ToolContext, room: String) -> ToolOutput {
         Ok(requests) => {
             let lines: Vec<String> = requests
                 .iter()
-                .map(|request| format!("{} {} ({})", text::line(&request.request_id), text::line(&request.name), kind_label(request.kind)))
+                .map(|request| {
+                    let (id, name, device) = (text::line(&request.request_id), text::line(&request.name), text::line(&request.device_id));
+                    format!("{id} {name} ({}) device {device}", kind_label(request.kind))
+                })
                 .collect();
             ToolOutput::ok(lines.join("\n"), json!({ "requests": requests }))
         }
@@ -125,15 +152,36 @@ fn member_device(members: &[MemberInfo], wanted: &str) -> Result<String, String>
     }
 }
 
+/// The device of the member `wanted` names in `room`.
+async fn room_member(ctx: &ToolContext, room: &str, wanted: &str) -> Result<String, String> {
+    let info = ctx.client.room(room).await.map_err(|error| error.to_string())?;
+    member_device(&info.members, wanted)
+}
+
+async fn remove_member(ctx: &ToolContext, room: String, member: String) -> ToolOutput {
+    if !may_change_rooms(ctx) {
+        return ToolOutput::failed(NOT_ALLOWED);
+    }
+    let device = match room_member(ctx, &room, &member).await {
+        Ok(device) => device,
+        Err(message) => return ToolOutput::failed(message),
+    };
+    match ctx.client.remove_member(&room, &device).await {
+        Ok(()) => {
+            ToolOutput::ok(format!("{} was removed from room {room}.", text::line(&member)), json!({ "roomId": room, "deviceId": device }))
+        }
+        Err(error) => ToolOutput::failed(error.to_string()),
+    }
+}
+
 async fn set_admin(ctx: &ToolContext, room: String, member: String, admin: bool) -> ToolOutput {
     if !may_change_rooms(ctx) {
         return ToolOutput::failed(NOT_ALLOWED);
     }
-    let device =
-        match ctx.client.room(&room).await.map_err(|error| error.to_string()).and_then(|info| member_device(&info.members, &member)) {
-            Ok(device) => device,
-            Err(message) => return ToolOutput::failed(message),
-        };
+    let device = match room_member(ctx, &room, &member).await {
+        Ok(device) => device,
+        Err(message) => return ToolOutput::failed(message),
+    };
     match ctx.client.set_admin(&room, &device, admin).await {
         Ok(info) => {
             let admins: Vec<String> = info.members.iter().filter(|member| member.admin).map(|member| text::line(&member.name)).collect();

@@ -5,7 +5,7 @@ use serde_json::{Value, json};
 use super::control::Backend;
 use super::rpc::{METHOD_NOT_FOUND, RpcError};
 use super::tools;
-use super::{INSTRUCTIONS, LEGACY_VERSIONS, SERVER_NAME};
+use super::{LEGACY_VERSIONS, SERVER_NAME, instructions};
 
 pub fn initialize(params: &Value) -> Value {
     let requested = params.get("protocolVersion").and_then(Value::as_str).unwrap_or_default();
@@ -14,7 +14,7 @@ pub fn initialize(params: &Value) -> Value {
         "protocolVersion": version,
         "capabilities": { "tools": {}, "experimental": { "claude/channel": {} } },
         "serverInfo": { "name": SERVER_NAME, "version": env!("CARGO_PKG_VERSION") },
-        "instructions": INSTRUCTIONS,
+        "instructions": instructions(),
     })
 }
 

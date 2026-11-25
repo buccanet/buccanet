@@ -196,6 +196,16 @@ pub enum Command {
         #[arg(long)]
         remove: bool,
     },
+    /// Remove a member from a room (room admins only).
+    Remove {
+        #[arg(long, short)]
+        profile: Option<String>,
+        #[arg(long, env = "BUCCANET_RELAY", default_value = DEFAULT_RELAY)]
+        relay: String,
+        room: String,
+        /// The member: its name, its device id or a unique prefix of it.
+        member: String,
+    },
     /// Print the messages that arrived since the profile last ran, or wait for the next ones.
     Wait {
         #[arg(long, short)]
@@ -232,12 +242,13 @@ pub async fn run(command: Command) -> CommandResult {
             session::join_command(profile, &relay, &link).await
         }
         Command::Requests { profile, room } => debug::requests(&profile, &room).await,
-        Command::Approve { profile, room, request } => debug::approve(&profile, &room, &request).await,
-        Command::Reject { profile, room, request } => debug::reject(&profile, &room, &request).await,
+        Command::Approve { profile, room, request } => debug::decide(&profile, &room, &request, true).await,
+        Command::Reject { profile, room, request } => debug::decide(&profile, &room, &request, false).await,
         Command::Send { profile, relay, room, text } => session::send_command(profile, &relay, &room, &session::message_text(text)?).await,
         Command::Tail { profile } => debug::tail(&profile).await,
         Command::Wait { profile, timeout } => debug::wait(&profile, std::time::Duration::from_secs(timeout)).await,
         Command::Admin { profile, relay, room, member, remove } => session::admin_command(profile, &relay, &room, &member, !remove).await,
+        Command::Remove { profile, relay, room, member } => session::remove_command(profile, &relay, &room, &member).await,
         Command::Chat { profile, room } => debug::chat(&profile, &room).await,
         Command::Mcp { profile, relay } => crate::mcp::server::run(&session::mcp_profile(profile, &relay).await?).await,
         Command::Attach { profile } => session::attach(&profile).await,

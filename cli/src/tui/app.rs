@@ -27,6 +27,7 @@ pub struct App {
     pub selected: usize,
     pub messages: Vec<ChatMessage>,
     pub unread: HashMap<String, u32>,
+    /// Who waits to join the rooms this device administers, as the relay last said.
     pub pending: Vec<PendingJoin>,
     pub input: Editor,
     pub focus: Focus,
@@ -103,11 +104,40 @@ impl App {
             selection: None,
         };
         app.reload().await;
+        app.refresh_pending().await;
         app
     }
 
     pub fn room(&self) -> Option<&RoomInfo> {
         self.rooms.get(self.selected)
+    }
+
+    /// Re-reads who waits to join from the relay. Only the relay knows that a request was decided
+    /// elsewhere: by another admin, by the automatic approval of an open room, or by `bucca approve`.
+    pub async fn refresh_pending(&mut self) {
+        let mut pending = Vec::new();
+        for room in self.rooms.iter().filter(|room| room.admin) {
+            match self.client.pending_requests(&room.room_id).await {
+                Ok(requests) => pending.extend(requests),
+                Err(error) => {
+                    self.status = format!("Could not read who waits to join: {}", text::line(&error.to_string()));
+                    return;
+                }
+            }
+        }
+        self.pending = pending;
+    }
+
+    /// The requests waiting to join the open room.
+    pub fn pending_here(&self) -> Vec<&PendingJoin> {
+        let room = self.room_id();
+        self.pending.iter().filter(|request| Some(&request.room_id) == room.as_ref()).collect()
+    }
+
+    /// A room's title, or the start of its id when it has none.
+    pub fn room_title(&self, room_id: &str) -> String {
+        let title = self.rooms.iter().find(|room| room.room_id == room_id).and_then(|room| room.title.clone());
+        title.map_or_else(|| text::short(room_id, 8), |title| text::line(&title))
     }
 
     pub fn room_id(&self) -> Option<String> {
@@ -165,7 +195,8 @@ impl App {
     pub fn menu(&self) -> Vec<MenuItem> {
         let me = self.client.device_id();
         let members = self.room().map(|room| room.members.as_slice()).unwrap_or_default();
-        menu::matching(self.input.text(), &RoomContext { members, me: &me })
+        let waiting: Vec<PendingJoin> = self.pending_here().into_iter().cloned().collect();
+        menu::matching(self.input.text(), &RoomContext { members, waiting: &waiting, me: &me })
     }
 
     /// Moves the menu's highlight, wrapping at both ends.
@@ -208,13 +239,16 @@ impl App {
                 self.reload().await;
             }
             ClientEvent::JoinRequested { request } => {
-                self.status = format!("{} asks to join. /approve to let them in, /reject to refuse.", text::line(&request.name));
-                self.pending.retain(|pending| pending.request_id != request.request_id);
-                self.pending.push(request);
+                self.refresh_pending().await;
+                if self.pending.iter().any(|pending| pending.request_id == request.request_id) {
+                    let room = self.room_title(&request.room_id);
+                    self.status = format!("{} asks to join {room}. /approve or /reject to decide.", text::line(&request.name));
+                }
             }
             ClientEvent::JoinedRoom { .. } | ClientEvent::RoomUpdated { .. } | ClientEvent::LeftRoom { .. } => {
                 self.local_agents = local_agents();
                 self.reload().await;
+                self.refresh_pending().await;
             }
             ClientEvent::HistoryImported { count, shared_by, .. } => {
                 self.status = format!("{} shared {count} earlier messages.", text::line(&shared_by));

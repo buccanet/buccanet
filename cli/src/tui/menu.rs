@@ -1,8 +1,9 @@
 //! The menu that opens above the input, as in Claude Code: on `/`, the commands whose name
 //! starts with what was typed; after a command that takes a member, such as `/remove `, the
-//! members of the open room whose name holds what follows.
+//! members of the open room whose name holds what follows; after `/approve ` or `/reject `, the
+//! people waiting to join it.
 
-use buccanet_sdk::{DeviceKind, MemberInfo};
+use buccanet_sdk::{DeviceKind, MemberInfo, PendingJoin};
 
 use crate::text;
 
@@ -21,8 +22,8 @@ pub const COMMANDS: [SlashCommand; 15] = [
     SlashCommand { name: "instructions", args: "", about: "Edit what your agents follow in every room" },
     SlashCommand { name: "join", args: "<link>", about: "Ask to join a room from an invite link" },
     SlashCommand { name: "requests", args: "", about: "List who is waiting to join" },
-    SlashCommand { name: "approve", args: "", about: "Let the first one waiting in" },
-    SlashCommand { name: "reject", args: "", about: "Turn the first one waiting down" },
+    SlashCommand { name: "approve", args: "<name>", about: "Let someone waiting into the open room" },
+    SlashCommand { name: "reject", args: "<name>", about: "Turn down someone waiting to join the open room" },
     SlashCommand { name: "remove", args: "<name>", about: "Remove a member from the open room" },
     SlashCommand { name: "admin", args: "<name>", about: "Make a member admin of the open room" },
     SlashCommand { name: "unadmin", args: "<name>", about: "Take the admin role back from a member" },
@@ -33,6 +34,9 @@ pub const COMMANDS: [SlashCommand; 15] = [
 
 /// The commands whose argument is a member of the open room.
 const MEMBER_COMMANDS: [&str; 3] = ["remove", "admin", "unadmin"];
+
+/// The commands whose argument is someone waiting to join the open room.
+const WAITING_COMMANDS: [&str; 2] = ["approve", "reject"];
 
 /// Rows the menu shows at once; it scrolls to keep the picked one in view.
 pub const VISIBLE: usize = 4;
@@ -50,16 +54,19 @@ pub struct MenuItem {
 /// What the menu knows about the open room.
 pub struct RoomContext<'a> {
     pub members: &'a [MemberInfo],
+    pub waiting: &'a [PendingJoin],
     pub me: &'a str,
 }
 
 /// The rows for what is typed; empty when the menu is closed.
 pub fn matching(input: &str, room: &RoomContext) -> Vec<MenuItem> {
     let Some(typed) = input.strip_prefix('/') else { return mentions(input, room) };
-    for command in MEMBER_COMMANDS {
-        if let Some(wanted) = typed.strip_prefix(command).and_then(|rest| rest.strip_prefix(' ')) {
-            return members(command, wanted, room);
-        }
+    let argument = |command: &str| typed.strip_prefix(command).and_then(|rest| rest.strip_prefix(' '));
+    if let Some((command, wanted)) = MEMBER_COMMANDS.iter().find_map(|command| Some((*command, argument(command)?))) {
+        return members(command, wanted, room);
+    }
+    if let Some((command, wanted)) = WAITING_COMMANDS.iter().find_map(|command| Some((*command, argument(command)?))) {
+        return waiting(command, wanted, room);
     }
     if typed.contains(char::is_whitespace) {
         return Vec::new();
@@ -88,6 +95,24 @@ fn members(command: &str, wanted: &str, room: &RoomContext) -> Vec<MenuItem> {
                 label: text::line(&member.name),
                 about: format!("{kind}{} · device {}", if member.admin { " · admin" } else { "" }, text::short(&member.device_id, 8)),
                 fill: format!("/{command} {}", member.device_id),
+                runs: true,
+            }
+        })
+        .collect()
+}
+
+/// The people waiting to join whose name holds `wanted`, ignoring case, or whose request id starts with it.
+fn waiting(command: &str, wanted: &str, room: &RoomContext) -> Vec<MenuItem> {
+    let wanted = wanted.trim().to_lowercase();
+    room.waiting
+        .iter()
+        .filter(|request| request.name.to_lowercase().contains(&wanted) || request.request_id.starts_with(&wanted))
+        .map(|request| {
+            let kind = if request.kind == DeviceKind::Agent { "agent" } else { "person" };
+            MenuItem {
+                label: text::line(&request.name),
+                about: format!("{kind} · asks to join · device {}", text::short(&request.device_id, 8)),
+                fill: format!("/{command} {}", request.request_id),
                 runs: true,
             }
         })
@@ -130,10 +155,10 @@ mod tests {
 
     #[test]
     fn matches_the_typed_start_of_a_command() {
-        let room = RoomContext { members: &[], me: "me" };
+        let room = RoomContext { members: &[], waiting: &[], me: "me" };
         let names = |input: &str| matching(input, &room).into_iter().map(|item| item.label).collect::<Vec<_>>();
         assert_eq!(names("/").len(), COMMANDS.len());
-        assert_eq!(names("/re"), vec!["/rename <title>", "/requests", "/reject", "/remove <name>"]);
+        assert_eq!(names("/re"), vec!["/rename <title>", "/requests", "/reject <name>", "/remove <name>"]);
         assert!(names("/new Plan").is_empty());
         assert!(names("hello").is_empty());
         assert_eq!((first_visible(2), first_visible(5)), (0, 2));
@@ -142,7 +167,7 @@ mod tests {
     #[test]
     fn lists_other_members_by_any_part_of_their_name() {
         let members = [member("me", "Ilan"), member("a1", "Claude (tosafot-llm)"), member("b2", "Claude (Projects)")];
-        let room = RoomContext { members: &members, me: "me" };
+        let room = RoomContext { members: &members, waiting: &[], me: "me" };
         let fills = |input: &str| matching(input, &room).into_iter().map(|item| item.fill).collect::<Vec<_>>();
         assert_eq!(fills("/remove "), vec!["/remove a1", "/remove b2"]);
         assert_eq!(fills("/remove proj"), vec!["/remove b2"]);
@@ -153,9 +178,27 @@ mod tests {
     }
 
     #[test]
+    fn lists_who_waits_to_join_by_name() {
+        let request = |id: &str, name: &str| PendingJoin {
+            room_id: "r".into(),
+            request_id: id.into(),
+            device_id: format!("device-{id}"),
+            name: name.into(),
+            kind: DeviceKind::Agent,
+        };
+        let waiting = [request("q1", "Claude (scratch)"), request("q2", "david-cluster")];
+        let room = RoomContext { members: &[], waiting: &waiting, me: "me" };
+        let fills = |input: &str| matching(input, &room).into_iter().map(|item| item.fill).collect::<Vec<_>>();
+        assert_eq!(fills("/approve "), vec!["/approve q1", "/approve q2"]);
+        assert_eq!(fills("/reject david"), vec!["/reject q2"]);
+        assert_eq!(fills("/approve q1"), vec!["/approve q1"]);
+        assert!(fills("/approve codex").is_empty());
+    }
+
+    #[test]
     fn completes_a_mention_in_place() {
         let members = [member("me", "Ilan"), member("x", "Codex"), member("c", "Claude (commons)")];
-        let room = RoomContext { members: &members, me: "me" };
+        let room = RoomContext { members: &members, waiting: &[], me: "me" };
         let fills = |input: &str| matching(input, &room).into_iter().map(|item| item.fill).collect::<Vec<_>>();
         assert_eq!(fills("salut @co"), vec!["salut @Codex "]);
         assert_eq!(fills("@c"), vec!["@Codex ", "@Claude (commons) "]);

@@ -19,6 +19,29 @@ pub struct ClaudeInbox {
 /// How far up the process tree the session's Claude Code process is looked for.
 const MAX_ANCESTORS: usize = 64;
 
+/// Where this process stands toward a Claude Code session, which decides what an agent is told
+/// about being woken.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionReach {
+    /// Not started by Claude Code.
+    Outside,
+    /// Inside a Claude Code session whose inbox this process can write to.
+    Inbox,
+    /// Inside a Claude Code session without a usable inbox: its messaging variables were removed,
+    /// or the socket belongs to a process this one does not descend from.
+    NoInbox,
+}
+
+impl SessionReach {
+    pub fn current() -> Self {
+        if ClaudeInbox::from_env().is_some() {
+            return Self::Inbox;
+        }
+        // Claude Code sets CLAUDECODE=1 in the environment of every process it starts.
+        if std::env::var("CLAUDECODE").is_ok_and(|value| value == "1") { Self::NoInbox } else { Self::Outside }
+    }
+}
+
 impl ClaudeInbox {
     /// The inbox of the parent session, when this process runs inside Claude Code.
     pub fn from_env() -> Option<Self> {

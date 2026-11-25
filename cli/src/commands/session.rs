@@ -15,6 +15,7 @@ use super::setup::{NewProfile, create_profile};
 use super::{CommandResult, debug};
 use crate::mcp::control::Backend;
 use crate::profile::{self, Profile, ProfileError};
+use crate::wake::claude_inbox::SessionReach;
 use crate::wake::claude_session::ClaudeSession;
 
 const STARTUP: Duration = Duration::from_secs(15);
@@ -170,9 +171,37 @@ pub fn relay_of_invite(link: &str) -> Option<String> {
 
 pub async fn join_command(profile: Option<String>, relay: &str, link: &str) -> CommandResult {
     match (profile, ClaudeSession::from_env()) {
-        (Some(name), _) => debug::join(&name, link).await,
+        (Some(name), _) => join_as_profile(&name, link).await,
         (None, Some(session)) => join(&session, relay, link).await,
         (None, None) => join_as_agent(relay, link).await,
+    }
+}
+
+/// A named profile joins on its own. When a Claude Code session runs the command, nothing
+/// follows that profile once it returns, so the session learns why it will not be woken.
+async fn join_as_profile(name: &str, link: &str) -> CommandResult {
+    debug::join(name, link).await?;
+    let bucca = crate::update::command();
+    if let Some(notice) = wake_notice(SessionReach::current(), Some(name), bucca) {
+        print!("{notice}{}", listening_guide(bucca, name));
+    }
+    Ok(())
+}
+
+/// Why a Claude Code session that joined this way stays asleep, and how to get woken.
+fn wake_notice(reach: SessionReach, profile: Option<&str>, bucca: &str) -> Option<String> {
+    match (reach, profile) {
+        (SessionReach::NoInbox, _) => Some(format!(
+            "This Claude Code session has no usable messaging socket: CLAUDE_CODE_MESSAGING_SOCKET or \
+             CLAUDE_CODE_MESSAGING_TOKEN is missing, or the socket belongs to a process this command does not descend from. \
+             New messages cannot wake it. To be woken on each new message, keep both variables in the session's environment \
+             and join with `{bucca} join <invite link>`, without -p.\n"
+        )),
+        (SessionReach::Inbox, Some(name)) => Some(format!(
+            "This Claude Code session joined as the profile `{name}`, and messages to a named profile do not reach the session. \
+             To be woken on each new message, run `{bucca} leave -p {name} <room id>`, then `{bucca} join <invite link>`, without -p.\n"
+        )),
+        (SessionReach::Inbox, None) | (SessionReach::Outside, _) => None,
     }
 }
 
@@ -192,14 +221,15 @@ async fn join_as_agent(relay: &str, link: &str) -> CommandResult {
         .await?;
     }
     debug::join(AGENT_PROFILE, link).await?;
-    print!("{}", listening_guide(crate::update::command()));
+    let bucca = crate::update::command();
+    let notice = wake_notice(SessionReach::current(), None, bucca).unwrap_or_default();
+    print!("{notice}{}", listening_guide(bucca, AGENT_PROFILE));
     Ok(())
 }
 
 /// How an agent with no harness to wake it stays in the conversation: nothing reaches it
 /// between its own commands, so it keeps a `wait` running.
-fn listening_guide(bucca: &str) -> String {
-    let p = AGENT_PROFILE;
+fn listening_guide(bucca: &str, p: &str) -> String {
     format!(
         "You are in the room. Nothing wakes you when someone writes, so stay in the conversation by looping:\n\
          1. Run `{bucca} wait -p {p}`. It returns with the new messages, or after 5 minutes without any. \
@@ -218,10 +248,19 @@ fn agent_display_name() -> String {
 }
 
 pub async fn admin_command(profile: Option<String>, relay: &str, room: &str, member: &str, admin: bool) -> CommandResult {
-    let args = json!({ "roomId": room, "member": member, "admin": admin });
+    admin_tool(profile, relay, "set_admin", json!({ "roomId": room, "member": member, "admin": admin })).await
+}
+
+pub async fn remove_command(profile: Option<String>, relay: &str, room: &str, member: &str) -> CommandResult {
+    admin_tool(profile, relay, "remove_member", json!({ "roomId": room, "member": member })).await
+}
+
+/// Runs a room admin tool as the profile named or as this session; a profile held by another
+/// process acts through it.
+async fn admin_tool(profile: Option<String>, relay: &str, tool: &str, args: Value) -> CommandResult {
     match target(profile)? {
-        Target::Profile(name) => debug::tool(&name, "set_admin", args).await,
-        Target::Session(session) => call(&session, relay, "set_admin", args).await,
+        Target::Profile(name) => debug::tool(&name, tool, args).await,
+        Target::Session(session) => call(&session, relay, tool, args).await,
     }
 }
 
@@ -244,7 +283,18 @@ pub async fn attach(name: &str) -> CommandResult {
 
 #[cfg(test)]
 mod tests {
-    use super::relay_of_invite;
+    use super::{relay_of_invite, wake_notice};
+    use crate::wake::claude_inbox::SessionReach;
+
+    #[test]
+    fn a_session_that_cannot_be_woken_is_told_why() {
+        let removed = wake_notice(SessionReach::NoInbox, Some("ocr"), "bucca").expect("a notice");
+        assert!(removed.contains("CLAUDE_CODE_MESSAGING_SOCKET") && removed.contains("bucca join <invite link>"));
+        let named = wake_notice(SessionReach::Inbox, Some("ocr"), "bucca").expect("a notice");
+        assert!(named.contains("bucca leave -p ocr <room id>"));
+        assert_eq!(wake_notice(SessionReach::Inbox, None, "bucca"), None);
+        assert_eq!(wake_notice(SessionReach::Outside, Some("ocr"), "bucca"), None);
+    }
 
     #[test]
     fn an_invite_link_names_its_relay() {

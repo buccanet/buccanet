@@ -256,6 +256,29 @@ fn draw_messages(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_widget(body.block(frame_block).scroll((u16::try_from(scroll).unwrap_or(u16::MAX), 0)), area);
 }
 
+/// Who waits to join the open room, by name, and how many wait in the other rooms.
+fn waiting_lines(app: &App) -> Vec<Line<'static>> {
+    let here = app.pending_here();
+    let elsewhere = app.pending.len() - here.len();
+    let mut lines = Vec::new();
+    if !here.is_empty() {
+        lines.push(Line::raw(""));
+        lines.push(Line::from(Span::styled("waiting to join", Style::default().fg(AMBER))));
+        lines.extend(here.iter().map(|request| {
+            Line::from(vec![
+                Span::styled(format!("[{}] ", kind_tag(request.kind)), Style::default().fg(DIM)),
+                Span::styled(text::line(&request.name), Style::default().fg(AMBER)),
+            ])
+        }));
+        lines.push(Line::from(Span::styled("/approve or /reject <name>", Style::default().fg(DIM))));
+    }
+    if elsewhere > 0 {
+        lines.push(Line::raw(""));
+        lines.push(Line::from(Span::styled(format!("{elsewhere} waiting in other rooms · /requests"), Style::default().fg(DIM))));
+    }
+    lines
+}
+
 fn draw_members(frame: &mut Frame, app: &App, area: Rect) {
     let me = app.client.device_id();
     let mut lines: Vec<Line> = app
@@ -277,10 +300,7 @@ fn draw_members(frame: &mut Frame, app: &App, area: Rect) {
             ])
         })
         .collect();
-    if !app.pending.is_empty() {
-        lines.push(Line::raw(""));
-        lines.push(Line::from(Span::styled(format!("{} waiting · /approve", app.pending.len()), Style::default().fg(AMBER))));
-    }
+    lines.extend(waiting_lines(app));
     let frame_block = block("members", false);
     let hidden = lines.len().saturating_sub(usize::from(frame_block.inner(area).height));
     app.members_limit.set(hidden);

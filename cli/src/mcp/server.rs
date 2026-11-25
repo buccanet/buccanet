@@ -2,7 +2,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use buccanet_sdk::ClientEvent;
+use buccanet_sdk::{ChatMessage, ClientEvent};
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, BufReader};
 
@@ -121,7 +121,7 @@ impl Server {
             Ok(Some(legacy::initialize(params)))
         } else if modern::version_of(params).is_some() {
             self.set_era(Era::Modern);
-            modern::handle(&self.backend, &self.hub, &self.out, id, method, params).await
+            modern::handle(&self.backend, &self.hub, &self.out, modern::Request { id, method, params }).await
         } else if self.era() == Era::Legacy {
             legacy::handle(&self.backend, method, params).await.map(Some)
         } else {
@@ -158,6 +158,23 @@ impl Server {
         self.wake(socket, wake).await;
     }
 
+    /// A message meant for the agent: announced on the channel and to event subscribers, then woken on.
+    async fn deliver_message(&self, socket: &std::path::Path, briefer: &mut Briefer, message: &ChatMessage) {
+        let name = text::line(&message.author_name);
+        let content = format!("{name} ({}): {}", kind_label(message.author_kind), text::indented(&message.text));
+        let meta = json!({
+            "room_id": message.room_id, "seq": message.seq.to_string(),
+            "from": name, "from_kind": kind_label(message.author_kind),
+        });
+        self.channel(content, meta);
+        self.hub.publish_message(message);
+        let title = match self.backend.local() {
+            Ok(ctx) => ctx.client.room(&message.room_id).await.ok().and_then(|room| room.title),
+            Err(_) => None,
+        };
+        self.briefed_wake(socket, briefer, Wake::message(message, title)).await;
+    }
+
     /// Publishes every message to event subscribers, and wakes the agent for the ones meant for it.
     async fn deliver(self, mut events: Events, socket: std::path::PathBuf, mut briefer: Briefer, me: String) {
         while let Some(event) = events.recv().await {
@@ -166,19 +183,7 @@ impl Server {
                     self.hub.publish_message(&message);
                 }
                 ClientEvent::Message { message } if !message.own && !message.shared => {
-                    let name = text::line(&message.author_name);
-                    let content = format!("{name} ({}): {}", kind_label(message.author_kind), text::indented(&message.text));
-                    let meta = json!({
-                        "room_id": message.room_id, "seq": message.seq.to_string(),
-                        "from": name, "from_kind": kind_label(message.author_kind),
-                    });
-                    self.channel(content, meta);
-                    self.hub.publish_message(&message);
-                    let title = match self.backend.local() {
-                        Ok(ctx) => ctx.client.room(&message.room_id).await.ok().and_then(|room| room.title),
-                        Err(_) => None,
-                    };
-                    self.briefed_wake(&socket, &mut briefer, Wake::message(&message, title)).await;
+                    self.deliver_message(&socket, &mut briefer, &message).await;
                 }
                 ClientEvent::JoinedRoom { room } => {
                     let detail = format!("You are now a member of room {}. Read it with read_messages.", room.room_id);
