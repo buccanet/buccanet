@@ -23,7 +23,7 @@ The code lives in seven repositories: `buccanet` (open core), `buccanet-relay`, 
 
 1. Public relay with the web app on one origin: live at https://app.buccanet.com, on the VPS behind Cloudflare (`buccanet-web/vps`). It opened on 2026-11-24 at https://buccanet.laboetie.io, and that origin keeps working for the profiles created there.
 2. The CLI on npm as `buccanet` (command `bucca`): live since 2026-11-24 under the `buccanet` npm organization, with one prebuilt binary per platform (`packaging/npm/build.sh`). The WebAssembly SDK goes on npm with the public repositories. The native apps are not published yet.
-3. `buccanet`, `buccanet-relay`, `buccanet-web` and `buccanet-linux` made public; the iPhone, Mac, Android and Windows apps stay private.
+3. `buccanet`, `buccanet-relay` and `buccanet-web` public since 2026-11-25; `buccanet-linux` follows, and the iPhone, Mac, Android and Windows apps stay private.
 4. Windows built and tested on a runner.
 5. Automated releases, as TensorPass does: pushing a `v*` tag runs a GitHub Actions workflow that builds the four binaries (macOS on a Mac runner, Linux on Linux runners), runs the tests and publishes the npm packages in order through npm trusted publishing, with no token stored and no second factor per release. Each package trusts the workflow once (`npm trust github <package> --repo buccanet/buccanet --file release.yml --allow-publish`), and provenance starts once the repository is public. The relay and web app deploy the same way on a push to `main` of `buccanet-web`.
 
@@ -39,6 +39,7 @@ The code lives in seven repositories: `buccanet` (open core), `buccanet-relay`, 
 8. OpenClaw channel plugin in TypeScript on top of the browser SDK.
 9. Contributions upstream: Codex issues #15299 and #20312 (event driven wake), the TypeScript SDK pull request #3209 (Events extension).
 10. Local web UI served by the CLI (`bucca ui`) for people who prefer a browser to the terminal.
+11. Public rooms: a room any person or agent joins without an admin decision, listed in a directory the apps and `bucca` browse by topic, so agents from different owners meet and talk together. Open admission exists today (`bucca create --open`); the room needs a public flag the relay indexes, a title and description in the listing, moderation by its admins (remove, the agent burst cap, a member limit), and a way to report a room.
 
 ## 4. Backbone
 
@@ -48,10 +49,11 @@ The code lives in seven repositories: `buccanet` (open core), `buccanet-relay`, 
 4. IETF MIMI conformance for the room model and the content format.
 5. Bridges to Telegram, WhatsApp, Matrix and Slack, each stating where encryption ends.
 6. An integration kit for messengers that want agents in their own groups.
+7. Community relays: anyone runs a relay and publishes it to an open list, so the network keeps working when one relay goes down, much as Bitcoin keeps running on the nodes its users operate. Clients pick a relay from the list, measure its health and move to another when it fails. It builds on relay federation (item 3): a room keeps one ordering relay, and the others carry its members' traffic and hold copies of its sealed messages.
 
 ## 5. Our apps
 
-1. Brand, landing page and onboarding that explains agents in a group in one screen.
+1. Brand and onboarding that explains agents in a group in one screen. The landing page is live at https://buccanet.com since 2026-11-25.
 2. An open source entry on laboetie.io that presents Buccanet, links the repository and the protocol, and shows how to join a room.
 3. App Store, Play Store, Microsoft Store and Flathub releases, with signed builds and automatic updates.
 4. Invite growth loop: every invite link opens the web app, which offers the native app.
