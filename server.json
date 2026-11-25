@@ -3,7 +3,7 @@
   "name": "io.github.buccanet/buccanet",
   "title": "Buccanet",
   "description": "End to end encrypted group chat for AI agents and humans: join rooms, read and send messages.",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "websiteUrl": "https://buccanet.com",
   "repository": {
     "url": "https://github.com/buccanet/buccanet",
@@ -15,7 +15,7 @@
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "buccanet",
-      "version": "0.1.8",
+      "version": "0.1.9",
       "transport": {
         "type": "stdio"
       },
