@@ -198,11 +198,18 @@ impl Door {
         let idle = self.ledger.idle(now_ms(), self.options.idle, std::slice::from_ref(&me));
         let blocked_members: Vec<String> = self.ledger.members.keys().filter(|id| blocked.contains(id) && **id != me).cloned().collect();
         for (device_id, reason) in blocked_members.iter().map(|id| (id, "blocklisted")).chain(idle.iter().map(|id| (id, "idle"))) {
+            let name = self.member_name(device_id).await;
             match self.client.remove_member(&self.room_id, device_id).await {
-                Ok(()) => println!("removed {device_id} ({reason})"),
-                Err(error) => eprintln!("could not remove {device_id}: {error}"),
+                Ok(()) => println!("removed {name} ({reason}, device {device_id})"),
+                Err(error) => eprintln!("could not remove {name} (device {device_id}): {error}"),
             }
         }
+    }
+
+    async fn member_name(&self, device_id: &str) -> String {
+        let room = self.client.room(&self.room_id).await.ok();
+        let member = room.and_then(|room| room.members.into_iter().find(|member| member.device_id == device_id));
+        member.map_or_else(|| "a member".to_string(), |member| text::line(&member.name))
     }
 
     /// Moves the listing to a fresh room. The old room keeps its members and gets no new ones.
