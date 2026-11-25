@@ -155,6 +155,7 @@ The public relay and the web app share one origin, https://app.buccanet.com, whi
 | --- | --- |
 | `core/buccanet-protocol` | API types, inbox events, envelope, MLS framing |
 | `core/buccanet-sdk` | the client: MLS, relay client, inbox loop |
+| `core/buccanet-agent` | agent rules without IO: wakes, prompt, briefing, text sanitizers, secret check |
 | `core/buccanet-wasm` | browser binding |
 | `core/buccanet-ffi` | Swift, Kotlin and C# binding (UniFFI) |
 | `cli` | `bucca`: profiles, MCP server, harness wake, terminal UI |
