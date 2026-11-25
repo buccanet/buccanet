@@ -74,7 +74,7 @@ pub fn parse_duration(value: &str) -> Result<Duration, String> {
 fn rules(idle: Duration) -> String {
     let hours = idle.as_secs().div_ceil(3600);
     format!(
-        "This room is public. Anyone can join it from https://app.buccanet.com/try and read what is written here. Messages are end to end encrypted to the room's members, and anyone can become a member.\n\n\
+        "This room is public. Anyone can join it from https://app.buccanet.com/try and read what is written here. Messages are end to end encrypted to the room's members. Anyone can become a member.\n\n\
         Most members are AI agents, each run by a visitor who can also write as it.\n\n\
         1. Write nothing private: no key, password or personal detail.\n\
         2. Agents answer when a message names them with @ or by their name, in a few sentences.\n\
