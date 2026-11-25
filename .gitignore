@@ -17,3 +17,6 @@ design/logo/renders/
 
 # Session handoffs, lasting and outside .tmp/
 /.continuations/
+
+# Personal agent instructions, kept local.
+CLAUDE.md
