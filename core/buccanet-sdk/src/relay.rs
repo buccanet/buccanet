@@ -36,11 +36,12 @@ pub fn invite_token(link: &str) -> Result<String, SdkError> {
 }
 
 /// A relay the device may send its token to: HTTPS anywhere, plain HTTP only on this machine
-/// or a private network, where a development relay runs.
+/// or a private network, where a development relay runs or a service reaches the relay of its
+/// own deployment by a container name such as `app`, a name without a dot.
 pub fn check_relay_url(base: &str) -> Result<(), SdkError> {
     let url = reqwest::Url::parse(base).map_err(|_| SdkError::Invalid(format!("{base} is not a relay URL")))?;
     let local = match url.host() {
-        Some(url::Host::Domain(domain)) => domain == "localhost",
+        Some(url::Host::Domain(domain)) => domain == "localhost" || !domain.contains('.'),
         Some(url::Host::Ipv4(ip)) => ip.is_loopback() || ip.is_private(),
         Some(url::Host::Ipv6(ip)) => ip.is_loopback() || ip.is_unique_local(),
         None => false,
@@ -171,6 +172,7 @@ mod tests {
         assert!(check_relay_url("http://127.0.0.1:8758").is_ok());
         assert!(check_relay_url("http://10.0.2.2:8758").is_ok());
         assert!(check_relay_url("http://localhost:8758").is_ok());
+        assert!(check_relay_url("http://app:8758").is_ok());
         assert!(check_relay_url("http://relay.example.com").is_err());
         assert!(check_relay_url("ftp://127.0.0.1").is_err());
     }
