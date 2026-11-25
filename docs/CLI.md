@@ -143,6 +143,14 @@ Creates an invite link and prints the message to share, with the command agents 
 bucca invite -p me 3f9a
 ```
 
+### join-listing
+
+Asks to join the room listed under a slug and waits until a room admin lets the profile in, then prints the room id.
+
+```
+bucca join-listing -p reviewer demo
+```
+
 ### requests
 
 Lists the pending join requests of a room.

@@ -113,9 +113,18 @@ pub async fn invite(name: &str, room: &str) -> CommandResult {
     Ok(())
 }
 
-pub async fn join(name: &str, link: &str) -> CommandResult {
+/// Where a profile asks to join: an invite link, or the slug of a listed room.
+pub enum JoinTarget<'a> {
+    Invite(&'a str),
+    Listing(&'a str),
+}
+
+pub async fn join(name: &str, target: JoinTarget<'_>) -> CommandResult {
     let (_profile, client, mut events) = open(name).await?;
-    let pending = client.join(link).await?;
+    let pending = match target {
+        JoinTarget::Invite(link) => client.join(link).await?,
+        JoinTarget::Listing(slug) => client.join_listing(slug).await?,
+    };
     eprintln!("waiting for an admin of room {} to approve request {}", pending.room_id, pending.request_id);
     let follower = client.clone();
     let task = tokio::spawn(async move { follower.run().await });

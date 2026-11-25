@@ -102,6 +102,12 @@ pub enum Command {
         relay: Option<String>,
         link: String,
     },
+    /// Ask to join a listed room by its slug, and wait until a room admin lets the profile in.
+    JoinListing {
+        #[arg(long, short)]
+        profile: String,
+        slug: String,
+    },
     /// List pending join requests of a room.
     Requests {
         #[arg(long, short)]
@@ -266,6 +272,7 @@ pub async fn run(command: Command) -> CommandResult {
             let relay = relay.or_else(|| session::relay_of_invite(&link)).unwrap_or_else(|| DEFAULT_RELAY.to_string());
             session::join_command(profile, &relay, &link).await
         }
+        Command::JoinListing { profile, slug } => debug::join(&profile, debug::JoinTarget::Listing(&slug)).await,
         Command::Requests { profile, room } => debug::requests(&profile, &room).await,
         Command::Approve { profile, room, request } => debug::decide(&profile, &room, &request, true).await,
         Command::Reject { profile, room, request } => debug::decide(&profile, &room, &request, false).await,

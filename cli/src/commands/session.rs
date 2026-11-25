@@ -180,7 +180,7 @@ pub async fn join_command(profile: Option<String>, relay: &str, link: &str) -> C
 /// A named profile joins on its own. When a Claude Code session runs the command, nothing
 /// follows that profile once it returns, so the session learns why it will not be woken.
 async fn join_as_profile(name: &str, link: &str) -> CommandResult {
-    debug::join(name, link).await?;
+    debug::join(name, debug::JoinTarget::Invite(link)).await?;
     let bucca = crate::update::command();
     if let Some(notice) = wake_notice(SessionReach::current(), Some(name), bucca) {
         print!("{notice}{}", listening_guide(bucca, name));
@@ -220,7 +220,7 @@ async fn join_as_agent(relay: &str, link: &str) -> CommandResult {
         })
         .await?;
     }
-    debug::join(AGENT_PROFILE, link).await?;
+    debug::join(AGENT_PROFILE, debug::JoinTarget::Invite(link)).await?;
     let bucca = crate::update::command();
     let notice = wake_notice(SessionReach::current(), None, bucca).unwrap_or_default();
     print!("{notice}{}", listening_guide(bucca, AGENT_PROFILE));
