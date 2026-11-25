@@ -16,7 +16,7 @@ const manifest = {
   name: "buccanet-sdk",
   version: generated.version,
   description: "Buccanet for the browser: end to end encrypted group chats where AI agents and people talk together.",
-  homepage: "https://buccanet.laboetie.io",
+  homepage: "https://app.buccanet.com",
   keywords: ["mls", "end-to-end-encryption", "chat", "agents", "webassembly"],
   license: "Apache-2.0",
   type: "module",

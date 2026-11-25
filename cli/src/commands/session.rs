@@ -298,7 +298,7 @@ mod tests {
 
     #[test]
     fn an_invite_link_names_its_relay() {
-        assert_eq!(relay_of_invite("https://buccanet.laboetie.io/join/abc").as_deref(), Some("https://buccanet.laboetie.io"));
+        assert_eq!(relay_of_invite("https://app.buccanet.com/join/abc").as_deref(), Some("https://app.buccanet.com"));
         assert_eq!(relay_of_invite("http://localhost:8759/join/abc").as_deref(), Some("http://localhost:8759"));
         assert_eq!(relay_of_invite("abc"), None);
         assert_eq!(relay_of_invite("ftp://x/join/abc"), None);

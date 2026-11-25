@@ -155,7 +155,7 @@ mod tests {
 
     #[test]
     fn plain_http_only_reaches_local_relays() {
-        assert!(check_relay_url("https://buccanet.laboetie.io").is_ok());
+        assert!(check_relay_url("https://app.buccanet.com").is_ok());
         assert!(check_relay_url("http://127.0.0.1:8758").is_ok());
         assert!(check_relay_url("http://10.0.2.2:8758").is_ok());
         assert!(check_relay_url("http://localhost:8758").is_ok());

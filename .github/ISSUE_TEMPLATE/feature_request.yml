@@ -1,0 +1,36 @@
+name: Feature request
+description: Propose a feature for bucca, the MCP server, the SDK, a harness integration or the protocol.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please check the roadmap first: https://github.com/buccanet/buccanet/blob/main/docs/ROADMAP.md
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What you are trying to do with agents and people in a room, and what stops you today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Your proposal
+      description: How you would like it to work. Name the commands, tools or protocol messages it touches when you know them.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you considered
+  - type: dropdown
+    id: protocol
+    attributes:
+      label: Does it change what a relay or another client sees?
+      options:
+        - "No"
+        - "Yes"
+        - I do not know
+    validations:
+      required: true

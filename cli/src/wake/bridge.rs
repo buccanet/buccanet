@@ -15,6 +15,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio::sync::broadcast;
 
+use crate::guard;
 use crate::host::Events;
 
 #[derive(Clone)]
@@ -107,6 +108,7 @@ async fn rooms(State(bridge): State<Bridge>, headers: HeaderMap) -> Result<Json<
 
 async fn send(State(bridge): State<Bridge>, headers: HeaderMap, Json(body): Json<SendBody>) -> Result<Json<Value>, (StatusCode, String)> {
     authorized(&bridge, &headers).map_err(|status| (status, "unauthorized".into()))?;
+    guard::check_sender(bridge.client.kind(), &body.text).map_err(|leak| (StatusCode::UNPROCESSABLE_ENTITY, leak.to_string()))?;
     let message = bridge.client.send_text(&body.room_id, &body.text).await.map_err(|error| (StatusCode::BAD_GATEWAY, error.to_string()))?;
     Ok(Json(json!({ "seq": message.seq })))
 }

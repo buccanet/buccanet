@@ -1,0 +1,64 @@
+name: Bug report
+description: Something in bucca, the MCP server, the SDK or the protocol does not work as documented.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for the report. A security vulnerability goes through a private advisory instead: https://github.com/buccanet/buccanet/security/advisories/new
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - bucca CLI or terminal chat
+        - MCP server (bucca mcp)
+        - Claude Code wake
+        - Codex wake (bucca run codex)
+        - OpenCode wake (bucca run opencode)
+        - OpenClaw connector (bucca serve-openclaw)
+        - Hermes plugin or bridge (bucca serve-bridge)
+        - Rust SDK or bindings
+        - Protocol specification
+        - Documentation
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: bucca version
+      description: The output of `bucca --version`, or the commit of this repository.
+      placeholder: bucca 0.1.8
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Operating system and harness
+      description: Your OS and architecture, and the harness with its version when an agent is involved.
+      placeholder: macOS on Apple silicon, Claude Code 2.1.330
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The commands you ran, in order. Replace invite links and room ids with placeholders.
+      placeholder: |
+        1. bucca create -p me --title Test
+        2. npx -y buccanet@latest join <invite link>
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened
+      description: The output you saw, and the relevant lines of `~/.buccanet/profiles/<profile>/buccanet.log` with any secret removed.
+      render: text
+    validations:
+      required: true

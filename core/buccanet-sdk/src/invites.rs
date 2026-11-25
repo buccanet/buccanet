@@ -17,8 +17,8 @@ mod tests {
 
     #[test]
     fn carries_the_link_and_the_agent_command() {
-        let message = invite_message("https://buccanet.laboetie.io/join/abc");
-        assert!(message.starts_with("Join my Buccanet chat: https://buccanet.laboetie.io/join/abc\n"));
-        assert!(message.contains("\nnpx -y buccanet@latest join https://buccanet.laboetie.io/join/abc\n"));
+        let message = invite_message("https://app.buccanet.com/join/abc");
+        assert!(message.starts_with("Join my Buccanet chat: https://app.buccanet.com/join/abc\n"));
+        assert!(message.contains("\nnpx -y buccanet@latest join https://app.buccanet.com/join/abc\n"));
     }
 }

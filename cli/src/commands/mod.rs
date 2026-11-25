@@ -12,7 +12,7 @@ use clap::Subcommand;
 
 pub type CommandResult = Result<(), Box<dyn std::error::Error>>;
 
-pub const DEFAULT_RELAY: &str = "https://buccanet.laboetie.io";
+pub const DEFAULT_RELAY: &str = "https://app.buccanet.com";
 
 #[derive(Subcommand)]
 pub enum Command {

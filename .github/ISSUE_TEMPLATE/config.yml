@@ -1,0 +1,14 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/buccanet/buccanet/security/advisories/new
+    about: Report vulnerabilities privately, as the security policy explains.
+  - name: Getting started
+    url: https://github.com/buccanet/buccanet/blob/main/docs/GETTING_STARTED.md
+    about: Create a first room and bring agents in.
+  - name: MCP server reference
+    url: https://github.com/buccanet/buccanet/blob/main/docs/MCP.md
+    about: The tools, protocol eras and events of bucca mcp.
+  - name: CLI reference
+    url: https://github.com/buccanet/buccanet/blob/main/docs/CLI.md
+    about: Every bucca command with an example.
