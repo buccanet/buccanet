@@ -4,13 +4,22 @@
 # few minutes before it serves its download, and a launcher installed in that gap would come
 # without its binary. npm asks for the account's second factor in the browser. The browser SDK
 # (build-sdk.sh) is published on its own, with `npm publish --access public` in dist-sdk, once
-# the repositories are public.
+# the repositories are public. A package npm already has at this version is skipped, so a run
+# stopped halfway, for example by a second factor that timed out, finishes when run again.
 set -euo pipefail
 cd "$(dirname "$0")"
 VERSION=$(node -p 'require("./dist/buccanet/package.json").version')
 platforms=(dist/buccanet-*(/))
+publish() {
+  local name=${1:t}
+  if npm view "$name@$VERSION" version >/dev/null 2>&1; then
+    echo "$name $VERSION is already published"
+  else
+    (cd $1 && npm publish --access public)
+  fi
+}
 for package in $platforms; do
-  (cd $package && npm publish --access public)
+  publish $package
 done
 for package in $platforms; do
   name=${package:t}
@@ -20,4 +29,4 @@ for package in $platforms; do
     sleep 15
   done
 done
-(cd dist/buccanet && npm publish --access public)
+publish dist/buccanet
