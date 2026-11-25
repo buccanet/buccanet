@@ -10,6 +10,7 @@ mod error;
 mod events;
 mod history;
 mod invites;
+mod listings;
 mod mentions;
 mod messaging;
 mod mls;
@@ -22,7 +23,7 @@ mod state;
 mod time;
 mod trust;
 
-pub use buccanet_protocol::api::{DeviceKind, RoomPolicy};
+pub use buccanet_protocol::api::{DeviceKind, ListingView, RoomPolicy};
 pub use buccanet_protocol::envelope::RoomRules;
 pub use client::{Client, ClientHost, JoinPending};
 pub use error::SdkError;

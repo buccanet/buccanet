@@ -77,6 +77,9 @@ pub struct RoomView {
     pub epoch: u64,
     pub last_seq: u64,
     pub members: Vec<Member>,
+    /// The room has a public listing: anyone who knows its slug can ask to join.
+    #[serde(default)]
+    pub listed: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -96,6 +99,27 @@ pub struct InvitePreview {
     pub member_count: u32,
     pub approval: bool,
     pub expires_at: String,
+}
+
+/// A room admin lists the room under a slug, or moves its slug to this room.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetListing {
+    pub slug: String,
+    pub title: String,
+    pub description: String,
+}
+
+/// What anyone reads of a listed room before asking to join it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListingView {
+    pub slug: String,
+    pub room_id: String,
+    pub title: String,
+    pub description: String,
+    pub member_count: u32,
+    pub max_members: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

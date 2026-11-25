@@ -9,6 +9,7 @@ pub mod b64;
 pub mod envelope;
 pub mod events;
 pub mod framing;
+pub mod listing;
 
 /// The only MLS ciphersuite Buccanet v1 accepts.
 pub const CIPHERSUITE: openmls::prelude::Ciphersuite = openmls::prelude::Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519;

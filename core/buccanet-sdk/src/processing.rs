@@ -290,6 +290,7 @@ fn joined_room(arrival: Arrival, joined: Joined) -> RoomState {
         messages: Vec::new(),
         pending: Vec::new(),
         history_imported: false,
+        listed: false,
         rules: None,
         admin_id: joined.welcomer,
         admins: Vec::new(),

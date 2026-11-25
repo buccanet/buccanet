@@ -1,6 +1,6 @@
 //! Creating rooms, invites, joining, and the admin side of membership.
 
-use buccanet_protocol::api::{Approve, CreateRoom, InvitePreview, PendingRequest, RemoveMember, RoomPolicy, RoomView};
+use buccanet_protocol::api::{Approve, CreateRoom, InvitePreview, JoinRequested, PendingRequest, RemoveMember, RoomPolicy, RoomView};
 use buccanet_protocol::envelope::Envelope;
 use rand::RngCore;
 use std::future::Future;
@@ -45,6 +45,7 @@ impl Client {
                 messages: Vec::new(),
                 pending: Vec::new(),
                 history_imported: true,
+                listed: false,
                 rules: None,
                 admin_id: inner.state.identity.device_id.clone(),
                 admins: vec![inner.state.identity.device_id.clone()],
@@ -158,14 +159,23 @@ impl Client {
         self.relay.preview(&invite_token(link)?).await
     }
 
-    /// Asks to join; the Welcome arrives in the inbox once an admin approves. The state stays
-    /// locked until the request is recorded, so an immediate Welcome finds it.
+    /// Asks to join from an invite link; the Welcome arrives in the inbox once an admin approves.
     pub async fn join(&self, link: &str) -> Result<JoinPending, SdkError> {
         let token = invite_token(link)?;
+        self.request_join(|key_package| self.relay.request_join(&token, key_package)).await
+    }
+
+    /// Sends a fresh key package with `request` and records the room as one this device asked to
+    /// join. The state stays locked until the request is recorded, so an immediate Welcome finds it.
+    pub(crate) async fn request_join<F, Fut>(&self, request: F) -> Result<JoinPending, SdkError>
+    where
+        F: FnOnce(Vec<u8>) -> Fut,
+        Fut: Future<Output = Result<JoinRequested, SdkError>>,
+    {
         let mut inner = self.inner.lock().await;
         let key_package = inner.mls.key_package()?;
         self.persist(&inner);
-        let requested = self.relay.request_join(&token, key_package).await?;
+        let requested = request(key_package).await?;
         if !inner.state.pending_joins.contains(&requested.room_id) {
             inner.state.pending_joins.push(requested.room_id.clone());
         }
@@ -308,6 +318,7 @@ impl Client {
             if !room.admin {
                 room.policy = view.policy;
             }
+            room.listed = view.listed;
             reconcile(&mut inner, room_id, &members_of(&view));
             let info = inner.room(room_id)?.info();
             self.persist(&inner);

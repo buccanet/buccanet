@@ -103,6 +103,7 @@ mod tests {
             messages: vec![],
             pending: vec![],
             history_imported: true,
+            listed: false,
             rules: None,
             admin_id: "ada".into(),
             admins: admins.iter().map(|id| id.to_string()).collect(),

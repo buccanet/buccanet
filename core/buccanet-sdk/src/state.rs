@@ -59,6 +59,9 @@ pub struct RoomState {
     pub messages: Vec<ChatMessage>,
     pub pending: Vec<PendingJoin>,
     pub history_imported: bool,
+    /// The room has a public listing, as the relay last said.
+    #[serde(default)]
+    pub listed: bool,
     /// The room rules this device holds, from a room admin.
     #[serde(default)]
     pub rules: Option<RoomRules>,
@@ -84,6 +87,7 @@ impl RoomState {
             admin: self.admin,
             last_seq: self.last_seq,
             rules: self.rules.clone(),
+            listed: self.listed,
         }
     }
 
@@ -218,6 +222,7 @@ mod tests {
             messages: vec![],
             pending: vec![],
             history_imported: false,
+            listed: false,
             rules: None,
             admin_id: String::new(),
             admins: Vec::new(),

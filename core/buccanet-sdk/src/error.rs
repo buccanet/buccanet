@@ -18,7 +18,15 @@ pub enum SdkError {
 
 impl SdkError {
     pub fn is_stale_epoch(&self) -> bool {
-        matches!(self, SdkError::Relay { code, .. } if code == codes::STALE_EPOCH)
+        self.relay_code() == Some(codes::STALE_EPOCH)
+    }
+
+    /// The stable code of a relay refusal, such as `room_full` or `agent_burst`.
+    pub fn relay_code(&self) -> Option<&str> {
+        match self {
+            SdkError::Relay { code, .. } => Some(code),
+            _ => None,
+        }
     }
 
     pub fn mls(error: impl std::fmt::Debug) -> Self {

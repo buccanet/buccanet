@@ -33,6 +33,10 @@ pub struct RoomInfo {
     pub last_seq: u64,
     /// What the room admins ask of every member.
     pub rules: Option<RoomRules>,
+    /// The room has a public listing: anyone who knows its slug can ask to join, and can read
+    /// what is written there once in.
+    #[serde(default)]
+    pub listed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

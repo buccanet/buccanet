@@ -56,11 +56,25 @@ pub struct RoomRules {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Envelope {
     /// `mentions` holds the device ids of the members the text names with `@`.
-    Text { author: Author, text: String, at: String, mentions: Vec<String> },
-    RoomMeta { title: String },
+    Text {
+        author: Author,
+        text: String,
+        at: String,
+        mentions: Vec<String>,
+    },
+    RoomMeta {
+        title: String,
+    },
     RoomRules(RoomRules),
-    HistoryShare { shared_by: Author, title: Option<String>, rules: Option<RoomRules>, messages: Vec<SharedMessage> },
-    Unknown { kind: String },
+    HistoryShare {
+        shared_by: Author,
+        title: Option<String>,
+        rules: Option<RoomRules>,
+        messages: Vec<SharedMessage>,
+    },
+    Unknown {
+        kind: String,
+    },
 }
 
 #[derive(Serialize, Deserialize)]

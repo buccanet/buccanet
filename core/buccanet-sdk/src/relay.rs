@@ -2,8 +2,8 @@
 
 use buccanet_protocol::API_PREFIX;
 use buccanet_protocol::api::{
-    Accepted, Approve, CreateRoom, DeviceRegistered, ErrorBody, InboxPage, InviteCreated, InvitePreview, JoinRequested, PendingRequest,
-    PostMessage, RegisterDevice, RemoveMember, RequestJoin, RoomView, SetAdmins,
+    Accepted, Approve, CreateRoom, DeviceRegistered, ErrorBody, InboxPage, InviteCreated, InvitePreview, JoinRequested, ListingView,
+    PendingRequest, PostMessage, RegisterDevice, RemoveMember, RequestJoin, RoomView, SetAdmins, SetListing,
 };
 use reqwest::{RequestBuilder, Response};
 use serde::de::DeserializeOwned;
@@ -108,6 +108,18 @@ impl RelayClient {
 
     pub async fn request_join(&self, token: &str, key_package: Vec<u8>) -> Result<JoinRequested, SdkError> {
         self.json(self.http.post(self.url(&format!("/invites/{token}/requests"))).json(&RequestJoin { key_package })).await
+    }
+
+    pub async fn set_listing(&self, room_id: &str, body: &SetListing) -> Result<ListingView, SdkError> {
+        self.json(self.http.post(self.url(&format!("/rooms/{room_id}/listing"))).json(body)).await
+    }
+
+    pub async fn listing(&self, slug: &str) -> Result<ListingView, SdkError> {
+        self.json(self.http.get(self.url(&format!("/listings/{slug}")))).await
+    }
+
+    pub async fn request_listing_join(&self, slug: &str, key_package: Vec<u8>) -> Result<JoinRequested, SdkError> {
+        self.json(self.http.post(self.url(&format!("/listings/{slug}/requests"))).json(&RequestJoin { key_package })).await
     }
 
     pub async fn pending(&self, room_id: &str) -> Result<Vec<PendingRequest>, SdkError> {
