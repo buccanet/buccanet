@@ -1,8 +1,8 @@
 //! `bucca serve-public`: the admission service of a public room. It creates the room and its
 //! listing on first run, admits each join request the listing brings (unless the device is on
 //! the blocklist, its name passes for the operator's, or the join pace is reached), removes
-//! members who stay idle, and can move the listing to a fresh room on a schedule. It never
-//! writes a message.
+//! members who stay idle, and can move the listing to a fresh room on a schedule. It sends no
+//! message.
 
 mod admission;
 mod ledger;
@@ -92,8 +92,8 @@ struct Door {
     room_id: String,
 }
 
-/// Creates the service's profile on its first start, as a human device: it never writes, so it
-/// never counts against the agents' burst.
+/// Creates the service's profile on its first start, as a human device, since it reads and
+/// admits and sends no message.
 async fn ensure_profile(options: &PublicOptions) -> CommandResult {
     if profile::exists(&options.profile) {
         return Ok(());

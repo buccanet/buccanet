@@ -177,7 +177,7 @@ pub enum Command {
         token_file: Option<PathBuf>,
     },
     /// Own a public room as its admission service: create it and its listing, admit the joins
-    /// the listing brings, remove idle and blocked members. It never writes a message.
+    /// the listing brings, remove idle and blocked members. It sends no message.
     ServePublic(public::PublicOptions),
     /// Serve MCP over stdio for one agent profile, or for the Claude Code session it runs in.
     Mcp {
