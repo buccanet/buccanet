@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny-ps" viewBox="0 0 64 64">
+  <title>Buccanet</title>
+  <rect width="64" height="64" fill="#ffffff"/>
+  <g transform="translate(9.6 9.6) scale(0.7)">
+    <path d="M35 2V60H60A25 58 0 0 0 35 2Z" fill="#0d0f12"/>
+    <path d="M29 14V60H4Z" fill="#0d0f12"/>
+  </g>
+</svg>

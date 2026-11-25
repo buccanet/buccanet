@@ -7,16 +7,25 @@
     uv run design/logo/build-icons.py <apple|android|web|linux> <app repository>
 
 Each app runs it from its build script through its `vendor/buccanet` submodule. The outputs are
-generated files and are not versioned.
+generated files and are not versioned. The web target also copies the vector files a browser reads:
+the favicon that follows the colour scheme, the symbol for dark grounds and the BIMI logo.
 """
 
 import json
+import shutil
 import sys
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFilter
 
-MASTER = Path(__file__).resolve().parent / "buccanet-icon.png"
+LOGO = Path(__file__).resolve().parent
+MASTER = LOGO / "buccanet-icon.png"
+# The vector files of the web target, by their name in `public/`.
+WEB_VECTORS = {
+    "favicon.svg": "buccanet-favicon.svg",
+    "buccanet-symbol-dark.svg": "buccanet-symbol-dark.svg",
+    "bimi.svg": "bimi.svg",
+}
 
 # macOS icon grid: the body is 824 of 1024 points, with this corner radius.
 MAC_BODY = 824 / 1024
@@ -59,7 +68,9 @@ def mac_icon(art: Image.Image, size: int) -> Image.Image:
     shadow = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     ImageDraw.Draw(shadow).rounded_rectangle(
         (offset, offset + size // 100, offset + body, offset + body + size // 100),
-        radius=round(body * MAC_RADIUS), fill=(0, 0, 0, 90))
+        radius=round(body * MAC_RADIUS),
+        fill=(0, 0, 0, 90),
+    )
     canvas.alpha_composite(shadow.filter(ImageFilter.GaussianBlur(size / 80)))
     canvas.alpha_composite(rounded(art, body, MAC_RADIUS), (offset, offset))
     return canvas
@@ -86,8 +97,8 @@ def build_apple(art: Image.Image, app: Path) -> None:
 
 
 def adaptive_background(art: Image.Image, size: int) -> Image.Image:
-    """The whole artwork inside the visible square, over a blurred copy that fills the margin."""
-    backdrop = scaled(art, size).filter(ImageFilter.GaussianBlur(size / 12))
+    """The whole artwork inside the visible square, over the master's ground colour, read from its corner."""
+    backdrop = Image.new("RGB", (size, size), art.getpixel((0, 0)))
     inner = round(size * ADAPTIVE_VISIBLE)
     backdrop.paste(scaled(art, inner), ((size - inner) // 2, (size - inner) // 2))
     return backdrop
@@ -105,7 +116,7 @@ def build_android(art: Image.Image, app: Path) -> None:
         '<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">\n'
         '    <background android:drawable="@mipmap/ic_launcher_background" />\n'
         '    <foreground android:drawable="@android:color/transparent" />\n'
-        '</adaptive-icon>\n'
+        "</adaptive-icon>\n"
     )
     anydpi = res / "mipmap-anydpi-v26"
     anydpi.mkdir(parents=True, exist_ok=True)
@@ -118,6 +129,8 @@ def build_web(art: Image.Image, app: Path) -> None:
     save(rounded(art, 64, 0.22), public / "favicon.png")
     save(scaled(art, 180), public / "apple-touch-icon.png")
     save(rounded(art, 512, 0.22), public / "icon-512.png")
+    for name, source in WEB_VECTORS.items():
+        shutil.copyfile(LOGO / source, public / name)
 
 
 def build_linux(art: Image.Image, app: Path) -> None:
