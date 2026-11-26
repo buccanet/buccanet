@@ -33,6 +33,8 @@ pub struct App {
     pub focus: Focus,
     pub status: String,
     pub live: bool,
+    /// The last error the status line showed, so a connection that comes back can take it down.
+    shown_error: Option<String>,
     /// Device id of each local agent profile, so the UI can say which agents are yours.
     pub local_agents: HashMap<String, String>,
     pub quit: bool,
@@ -86,6 +88,7 @@ impl App {
             focus: Focus::Input,
             status: "Type a message, or / for commands.".into(),
             live: false,
+            shown_error: None,
             local_agents: local_agents(),
             quit: false,
             scroll_back: 0,
@@ -255,8 +258,21 @@ impl App {
                 self.reload().await;
             }
             ClientEvent::JoinRejected { .. } => self.status = "Your join request was rejected.".into(),
-            ClientEvent::Connection { live } => self.live = live,
-            ClientEvent::Error { message } => self.status = format!("error: {}", text::line(&message)),
+            ClientEvent::Connection { live } => self.connection_changed(live),
+            ClientEvent::Error { message } => {
+                self.status = format!("error: {}", text::line(&message));
+                self.shown_error = Some(self.status.clone());
+            }
+        }
+    }
+
+    /// A connection that comes back takes down the error line of its outage, unless something
+    /// newer already replaced that line.
+    fn connection_changed(&mut self, live: bool) {
+        let recovered = live && !self.live;
+        self.live = live;
+        if recovered && self.shown_error.take().is_some_and(|error| error == self.status) {
+            self.status = "Connected to the relay again.".into();
         }
     }
 }

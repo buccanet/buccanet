@@ -40,15 +40,16 @@ fn release_input() {
     let _ = crossterm::execute!(out, DisableBracketedPaste, DisableMouseCapture);
 }
 
-/// Opens the profile, creating it on first run, and starts following its rooms. The returned
-/// profile holds the lock: keep it for as long as the UI runs.
+/// Opens the profile, creating it on first run, and starts following its rooms. The UI opens on
+/// what the device stored: the follower catches up with the relay once it answers, so a relay
+/// out of reach shows as `connecting`. The returned profile holds the lock: keep it for as long
+/// as the UI runs.
 async fn open_app(profile_name: &str, relay: &str) -> Result<(Profile, App, Events), Box<dyn std::error::Error>> {
     if !profile::exists(profile_name) {
         setup::onboard(profile_name, relay).await?;
     }
     let profile = Profile::open(profile_name)?;
     let (client, events) = open_client(&profile).await?;
-    client.sync().await?;
     crate::mcp::control::serve_profile(&profile, &client)?;
     let follower = client.clone();
     tokio::spawn(async move { follower.run().await });

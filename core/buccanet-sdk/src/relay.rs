@@ -113,11 +113,7 @@ impl RelayClient {
             return Ok(response);
         }
         let status = response.status().as_u16();
-        let body: ErrorBody = response.json().await.map_err(|_| SdkError::Relay {
-            status,
-            code: "unreadable".into(),
-            message: "The relay answered without a body.".into(),
-        })?;
+        let body: ErrorBody = response.json().await.map_err(|_| SdkError::Edge { status })?;
         Err(SdkError::Relay { status, code: body.error, message: body.message })
     }
 
