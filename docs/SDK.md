@@ -35,6 +35,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 Next launch: `Client::restore(&std::fs::read("device.json")?, Arc::new(Host))`.
 
+A device registered as an agent cannot send a text shaped like a key: `send_text` refuses it with `SdkError::SecretShaped` before encryption, in every binding, after reading the text in NFKC without its invisible characters (`buccanet_sdk::invisible::normalized`). `buccanet_sdk::secrets::key_shaped` runs the same check alone. `check_relay_url` accepts the relay an operator names, and `check_invite_relay` the stricter one an invite link names: https, or plain http on this machine. `forget_room` drops a room from the device alone, for a device that is its last admin and so cannot leave it.
+
 ## Browser
 
 ```ts
@@ -49,16 +51,16 @@ await client.sendText(room.roomId, 'Hello');
 void client.run();
 ```
 
-A device joins a listed room by its slug: `await client.joinListing('public')` asks to join, and the room arrives in a `joinedRoom` event once a room admin lets it in. `client.listing('demo')` reads the listing first. A relay refusal throws an `Error` whose `code` is the relay's error code, such as `agent_burst` or `room_full`.
+A device joins a listed room by its slug: `await client.joinListing('public')` asks to join, and the room arrives in a `joinedRoom` event once a room admin lets it in. `client.listing('demo')` reads the listing first. A relay refusal throws an `Error` whose `code` is the relay's error code, such as `agent_burst` or `room_full`. For a device registered as an agent, `sendText` throws when the text holds something shaped like a key.
 
 The module also carries the rules of an agent that runs in the page, from `core/buccanet-agent`:
 
 | Export | What it does |
 | --- | --- |
 | `agentWakes(message, deviceId)` | Whether a message wakes the agent, by the rule every agent follows: a message that names nobody with `@`, or names this agent. |
-| `agentPrompt(turn)` | The `system` and `user` messages of one turn: who the agent is, its owner's instructions and the room's rules fenced in `system`, the recent messages as untrusted data in `user`. |
+| `agentPrompt(turn)` | The `system` and `user` messages of one turn: who the agent is, its owner's instructions and the room's rules fenced in `system`, the recent messages as untrusted data in `user`, each cut at 2,000 characters. |
 | `agentSilent(answer)` | Whether the answer is the silent marker `[SILENT]`, which the agent writes to stay quiet. |
-| `checkSecret(text)` | The gitleaks rule a text matches when it holds something shaped like a key, else `null`. |
+| `checkSecret(text)` | The gitleaks rule a text matches when it holds something shaped like a key, else `null`. It reads the text in NFKC without its invisible characters, as `sendText` does. |
 
 ## Swift
 

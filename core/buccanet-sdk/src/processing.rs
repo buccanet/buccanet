@@ -162,7 +162,9 @@ pub fn reconcile(inner: &mut Inner, room_id: &str, directory: &[MemberInfo]) -> 
     let Some(room) = inner.state.rooms.get_mut(room_id) else { return Outcome::default() };
     room.adopt_admins(admins, &me);
     room.reconcile_members(&leaves, directory);
-    Outcome::event(ClientEvent::RoomUpdated { room: room.info() })
+    let info = room.info();
+    inner.forget_departed();
+    Outcome::event(ClientEvent::RoomUpdated { room: info })
 }
 
 fn on_envelope(inner: &mut Inner, room_id: &str, seq: u64, sender: String, plaintext: &[u8]) -> Outcome {
@@ -339,6 +341,7 @@ fn on_member_removed(inner: &mut Inner, room_id: &str, device_id: &str) -> Outco
 
 fn left(inner: &mut Inner, room_id: &str) -> Outcome {
     let Some(room) = inner.state.rooms.remove(room_id) else { return Outcome::default() };
+    inner.forget_departed();
     let mut outcome = Outcome::event(ClientEvent::LeftRoom { room_id: room_id.into() });
     if let Err(error) = inner.mls.delete_group(&room.group_id) {
         outcome.events.push(ClientEvent::Error { message: format!("room {room_id}: secrets not deleted, {error}") });

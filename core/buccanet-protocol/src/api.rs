@@ -206,7 +206,11 @@ pub struct ErrorBody {
 
 /// Stable error codes a client can branch on.
 pub mod codes {
+    /// The bearer token is missing or malformed.
     pub const UNAUTHORIZED: &str = "unauthorized";
+    /// The bearer token is well formed but names no device: the relay forgot the device, so the
+    /// client registers again instead of retrying.
+    pub const DEVICE_UNKNOWN: &str = "device_unknown";
     pub const FORBIDDEN: &str = "forbidden";
     pub const NOT_FOUND: &str = "not_found";
     pub const INVALID_INPUT: &str = "invalid_input";

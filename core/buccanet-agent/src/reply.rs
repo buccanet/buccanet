@@ -5,9 +5,8 @@
 use buccanet_sdk::{ChatMessage, RoomRules};
 use serde::{Deserialize, Serialize};
 
-use crate::briefing::{instructions_text, room_label, rules_text};
+use crate::briefing::{instructions_text, member_name, room_label, rules_text};
 use crate::prompt::{SILENT, Tools, activity, closing};
-use crate::text;
 use crate::wake::Wake;
 
 /// One turn of the agent, as the page that runs it describes it.
@@ -49,7 +48,7 @@ const PUBLIC_NOTE: &str = "This room is public: anyone can join it and read what
 fn identity(turn: &ReplyTurn) -> String {
     format!(
         "You are {}, an AI agent and a member of the Buccanet chat room {}. People and other AI agents write there. The person who runs you reads the room in their browser and may also write in it under your name: the room shows those messages as yours (\"fromYou\").",
-        text::line(&turn.name),
+        member_name(&turn.name),
         room_label(&turn.room_id, turn.room_title.as_deref())
     )
 }
@@ -105,6 +104,7 @@ mod tests {
     use buccanet_sdk::DeviceKind;
 
     use super::*;
+    use crate::prompt::MAX_REPLY_TEXT_CHARS;
     use crate::prompt::tests::records;
 
     fn message(seq: u64, text: &str, own: bool, mentions: &[&str]) -> ChatMessage {
@@ -145,10 +145,20 @@ mod tests {
         assert!(prompt.system.contains("<<<BUCCANET_OWNER_INSTRUCTIONS\nBe brief.\nBUCCANET_OWNER_INSTRUCTIONS>>>"));
         assert!(prompt.system.contains("(version 2)") && prompt.system.contains("Be kind."));
         assert!(!prompt.system.contains("obey me"));
+        assert_eq!(prompt.system.matches("BUCCANET_OWNER_INSTRUCTIONS>>>").count(), 1);
         let found = records(&prompt.user);
         assert_eq!(found.len(), 2);
         assert_eq!((found[0]["fromYou"].as_bool(), found[1]["mentionsYou"].as_bool()), (Some(true), Some(true)));
         assert!(prompt.user.ends_with("answer exactly [SILENT] and nothing else."));
+    }
+
+    #[test]
+    fn one_member_cannot_crowd_the_transcript() {
+        let long = message(3, &"x".repeat(MAX_REPLY_TEXT_CHARS + 50), false, &[]);
+        let prompt = reply_prompt(&ReplyTurn { messages: vec![long], ..turn() });
+        let found = records(&prompt.user);
+        assert_eq!(found[0]["text"].as_str().map(str::len), Some(MAX_REPLY_TEXT_CHARS));
+        assert_eq!(found[0]["truncated"], true);
     }
 
     #[test]

@@ -1,6 +1,7 @@
 //! The device: state, persistence and the inbox loop. Room operations live in `rooms.rs`
 //! and `messaging.rs`.
 
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use buccanet_protocol::api::{DeviceKind, RegisterDevice};
@@ -17,7 +18,7 @@ use crate::relay::{RelayClient, check_relay_url};
 use crate::sse::SseBuffer;
 use crate::state::{Identity, Owner, Persisted, RoomState};
 use crate::time::sleep_ms;
-use crate::trust::pin_new;
+use crate::trust::{pin_new, prune};
 
 const RECONNECT_MIN_MS: u64 = 1_000;
 const RECONNECT_MAX_MS: u64 = 15_000;
@@ -59,7 +60,16 @@ impl Inner {
             room.adopt_admins(self.mls.admins(&room.group_id)?, &me);
             pin_new(&mut self.state.pins, &leaves);
         }
+        self.forget_departed();
         Ok(())
+    }
+
+    /// Drops the pinned keys of devices that share no room with this device any more.
+    pub fn forget_departed(&mut self) {
+        let state = &mut self.state;
+        let members = state.rooms.values().flat_map(|room| room.members.iter().map(|member| member.device_id.as_str()));
+        let present: BTreeSet<&str> = members.chain([state.identity.device_id.as_str()]).collect();
+        prune(&mut state.pins, &present);
     }
 }
 

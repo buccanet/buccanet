@@ -1,8 +1,8 @@
 //! What a device believes about other devices, decided from the MLS tree and never from the
 //! relay: only a room admin changes the group, and each device keeps the signing key it was
-//! first seen with.
+//! first seen with while it shares a room with this device.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use buccanet_protocol::b64;
 
@@ -25,6 +25,12 @@ pub fn pin_new(pins: &mut Pins, leaves: &[Leaf]) {
     for leaf in leaves {
         pins.entry(leaf.device_id.clone()).or_insert_with(|| b64::encode(&leaf.signature_key));
     }
+}
+
+/// Forgets the keys of devices that are in none of this device's rooms, so the pins grow with
+/// the rooms and not with every device ever seen. `present` holds the devices still met.
+pub fn prune(pins: &mut Pins, present: &BTreeSet<&str>) {
+    pins.retain(|device_id, _| present.contains(device_id.as_str()));
 }
 
 /// What a received commit claims: who made it, which devices it adds and removes, and the
@@ -81,6 +87,14 @@ mod tests {
         assert_eq!(pinned_key(&pins, "a"), Some(vec![1; 32]));
         assert_eq!(key_change(&pins, &[leaf("b", 3), leaf("a", 2)]).map(|leaf| leaf.device_id.as_str()), Some("a"));
         assert!(key_change(&pins, &[leaf("a", 1), leaf("c", 9)]).is_none());
+    }
+
+    #[test]
+    fn devices_that_left_every_room_are_forgotten() {
+        let mut pins = Pins::new();
+        pin_new(&mut pins, &[leaf("me", 1), leaf("ada", 2), leaf("gone", 3)]);
+        prune(&mut pins, &BTreeSet::from(["me", "ada"]));
+        assert_eq!(pins.keys().map(String::as_str).collect::<Vec<_>>(), vec!["ada", "me"]);
     }
 
     #[test]

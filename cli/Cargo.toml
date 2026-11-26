@@ -39,4 +39,7 @@ rand.workspace = true
 base64.workspace = true
 arboard = { version = "3", default-features = false }
 unicode-width = "0.2"
+# Confusable skeletons and script sets (Unicode UTS 39) for the names a public room refuses.
+unicode-security = "0.1"
+unicode-normalization = "0.1"
 sha2.workspace = true

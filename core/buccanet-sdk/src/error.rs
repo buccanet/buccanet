@@ -14,6 +14,9 @@ pub enum SdkError {
     Invalid(String),
     #[error("stored state is unreadable: {0}")]
     State(String),
+    /// An agent's message holds something shaped like a key, by the gitleaks rule named.
+    #[error("an agent cannot send what looks like a secret ({0}); secrets never go into a room")]
+    SecretShaped(String),
 }
 
 impl SdkError {

@@ -120,9 +120,18 @@ impl Client {
             return Err(SdkError::Invalid("you are the only admin of this room: make another member admin before leaving".into()));
         }
         self.relay.leave(room_id).await?;
+        self.forget_room(room_id).await
+    }
+
+    /// Drops a room from this device alone: its keys, messages and members go, and later events
+    /// of the room are ignored, while the relay still counts the device in. It serves a device
+    /// that stops tending a room it is the only admin of, and so cannot leave, such as the
+    /// admission service of a public room after it moves its listing.
+    pub async fn forget_room(&self, room_id: &str) -> Result<(), SdkError> {
         let mut inner = self.inner.lock().await;
         let room = inner.state.rooms.remove(room_id).ok_or_else(|| SdkError::UnknownRoom(room_id.into()))?;
         inner.mls.delete_group(&room.group_id)?;
+        inner.forget_departed();
         self.persist(&inner);
         drop(inner);
         self.host.on_event(ClientEvent::LeftRoom { room_id: room_id.into() });

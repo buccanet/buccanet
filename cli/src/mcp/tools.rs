@@ -8,7 +8,7 @@ use super::rpc::{INVALID_PARAMS, RpcError};
 use crate::commands::output::kind_label;
 use crate::guard;
 use crate::profile::ProfileConfig;
-use buccanet_agent::text;
+use buccanet_agent::{briefing, text};
 
 /// The room policy bounds the relay accepts.
 const MAX_MEMBERS: std::ops::RangeInclusive<u64> = 2..=1000;
@@ -55,17 +55,7 @@ pub fn definitions() -> Vec<Value> {
     let room = json!({ "type": "string", "description": "Room id, or a unique prefix of it" });
     [
         tool("list_rooms", "List the rooms you are in, with their members.", json!({}), &[]),
-        tool(
-            "create_room",
-            "Create an end to end encrypted room and get an invite link to share.",
-            json!({
-                "title": { "type": "string" },
-                "approval": { "type": "boolean", "description": "Joins wait for an admin decision (default true)" },
-                "maxMembers": { "type": "integer", "minimum": 2, "maximum": 1000 },
-                "agentBurst": { "type": "integer", "minimum": 1, "maximum": 10_000, "description": "Consecutive agent messages allowed before a person speaks" },
-            }),
-            &[],
-        ),
+        create_room_definition(),
         tool("create_invite", "Create a reusable invite link for a room.", json!({ "roomId": room }), &["roomId"]),
         tool(
             "join_room",
@@ -73,16 +63,7 @@ pub fn definitions() -> Vec<Value> {
             json!({ "invite": { "type": "string", "description": "Invite link such as https://…/join/<token>" } }),
             &["invite"],
         ),
-        tool(
-            "read_messages",
-            "Read recent messages of a room, oldest first.",
-            json!({
-                "roomId": room,
-                "afterSeq": { "type": "integer", "minimum": 0, "description": "Only messages after this seq" },
-                "limit": { "type": "integer", "minimum": 1, "maximum": 200 },
-            }),
-            &["roomId"],
-        ),
+        read_messages_definition(&room),
         tool("send_message", "Send a message to a room.", json!({ "roomId": room, "text": { "type": "string" } }), &["roomId", "text"]),
         tool(
             "leave_room",
@@ -96,6 +77,33 @@ pub fn definitions() -> Vec<Value> {
     .into_iter()
     .chain(admin_tools::definitions(&room))
     .collect()
+}
+
+fn create_room_definition() -> Value {
+    tool(
+        "create_room",
+        "Create an end to end encrypted room and get an invite link to share.",
+        json!({
+            "title": { "type": "string" },
+            "approval": { "type": "boolean", "description": "Joins wait for an admin decision (default true)" },
+            "maxMembers": { "type": "integer", "minimum": 2, "maximum": 1000 },
+            "agentBurst": { "type": "integer", "minimum": 1, "maximum": 10_000, "description": "Consecutive agent messages allowed before a person speaks" },
+        }),
+        &[],
+    )
+}
+
+fn read_messages_definition(room: &Value) -> Value {
+    tool(
+        "read_messages",
+        "Read recent messages of a room, oldest first.",
+        json!({
+            "roomId": room,
+            "afterSeq": { "type": "integer", "minimum": 0, "description": "Only messages after this seq" },
+            "limit": { "type": "integer", "minimum": 1, "maximum": 200 },
+        }),
+        &["roomId"],
+    )
 }
 
 pub(super) fn arg<'a>(args: &'a Value, key: &str) -> Result<&'a str, RpcError> {
@@ -268,15 +276,16 @@ async fn get_room_rules(ctx: &ToolContext, room: String) -> ToolOutput {
         Ok(instructions) => instructions,
         Err(error) => return ToolOutput::failed(format!("your owner's instructions are unreadable: {error}")),
     };
-    let rules = match ctx.client.room(&room).await {
-        Ok(info) => info.rules,
+    let (rules, title) = match ctx.client.room(&room).await {
+        Ok(info) => (info.rules, info.title),
         Err(error) => return ToolOutput::failed(error.to_string()),
     };
+    let label = briefing::room_label(&room, title.as_deref());
     let rules_text = rules.as_ref().map_or_else(
         || "This room has no rules yet.".to_string(),
-        |rules| format!("Room rules (version {}), set by a room admin:\n{}", rules.version, rules.text),
+        |rules| briefing::rules_text(&label, Some(&rules.version.to_string()), &rules.text),
     );
-    let text = format!("Your owner's instructions (version {}):\n{}\n\n{rules_text}", instructions.version, instructions.text);
+    let text = format!("{}\n\n{rules_text}", briefing::instructions_text(Some(&instructions.version), &instructions.text));
     ToolOutput::ok(
         text,
         json!({ "roomId": room, "instructions": instructions.text, "instructionsVersion": instructions.version, "rules": rules }),

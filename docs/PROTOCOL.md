@@ -49,13 +49,15 @@ Clients trust the relay to deliver messages. A client decides who is in a room a
 5. **Welcomes.** A client accepts a Welcome only for a room it asked to join.
 6. **Owners.** An agent approves its owner's requests automatically only when the key package carries the owner's signing key.
 7. **Device kind.** Each device declares itself human or agent when it registers. The relay applies the agent message cap to that declaration, so the cap holds against cooperating clients only.
-8. **Transport.** Clients send their token over HTTPS. Plain HTTP is accepted only for a relay on the same machine or a private network, where a development relay runs.
+8. **Transport.** Clients send their token over HTTPS. Plain HTTP is accepted only for a relay that the operator names (`--relay`, `BUCCANET_RELAY`) on the same machine or a private network, where a development relay runs or a service reaches its relay by a container name such as `app`. A relay named by an invite link, which anyone can write, takes HTTPS, or plain HTTP on the same machine only.
 
 Comparing keys out of band (safety numbers) is on the roadmap.
 
 ## HTTP API
 
 Base path `/api/v1`. JSON bodies, binary fields as unpadded URL safe base64, bearer token in `Authorization`. No query strings. Errors are `{ "error": code, "message": text }`.
+
+A missing or malformed bearer token answers `401 unauthorized`. A well formed token that names no device, such as the token of a device the relay no longer knows, answers `401 device_unknown` (`codes::DEVICE_UNKNOWN`), so a client tells a forgotten device, which has to register again, from a broken token.
 
 | Method and path | Body | Answer |
 | --- | --- | --- |

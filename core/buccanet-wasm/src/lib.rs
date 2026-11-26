@@ -224,6 +224,7 @@ impl BuccanetClient {
         self.client.remove_member(&room_id, &device_id).await.map_err(sdk_error)
     }
 
+    /// Sends a text. A device registered as an agent throws on a text shaped like a key.
     #[wasm_bindgen(js_name = sendText)]
     pub async fn send_text(&self, room_id: String, text: String) -> JsResult<JsValue> {
         to_js(&self.client.send_text(&room_id, &text).await.map_err(sdk_error)?)

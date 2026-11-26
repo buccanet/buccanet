@@ -8,11 +8,12 @@ use std::io::Read;
 use std::process::Stdio;
 use std::time::Duration;
 
+use buccanet_sdk::{SdkError, check_invite_relay};
 use serde_json::{Value, json};
 
 use super::run::{AGENT_PROFILE, OWNER_PROFILE};
 use super::setup::{NewProfile, create_profile};
-use super::{CommandResult, debug};
+use super::{CommandResult, DEFAULT_RELAY, debug};
 use crate::mcp::control::Backend;
 use crate::profile::{self, Profile, ProfileError};
 use crate::wake::claude_inbox::SessionReach;
@@ -163,17 +164,25 @@ pub async fn send_command(profile: Option<String>, relay: &str, room: &str, text
 }
 
 /// The relay behind an invite link: the web app and its relay share one origin, so a link
-/// `<origin>/join/<token>` names its relay. A bare token names none.
-pub fn relay_of_invite(link: &str) -> Option<String> {
-    let (origin, _) = link.trim().split_once("/join/")?;
-    (origin.starts_with("https://") || origin.starts_with("http://")).then(|| origin.to_string())
+/// `<origin>/join/<token>` names its relay. A bare token names none. Anyone can write a link, so
+/// its relay takes HTTPS, or plain HTTP on this machine only; `--relay` names any other one.
+pub fn relay_of_invite(link: &str) -> Result<Option<String>, SdkError> {
+    let Some((origin, _)) = link.trim().split_once("/join/") else { return Ok(None) };
+    check_invite_relay(origin)?;
+    Ok(Some(origin.to_string()))
 }
 
-pub async fn join_command(profile: Option<String>, relay: &str, link: &str) -> CommandResult {
+/// Joins from an invite link. A new profile registers on `relay` when one is named, else on the
+/// relay of the link, else on the default relay.
+pub async fn join_command(profile: Option<String>, relay: Option<String>, link: &str) -> CommandResult {
+    let relay = match relay {
+        Some(relay) => relay,
+        None => relay_of_invite(link)?.unwrap_or_else(|| DEFAULT_RELAY.to_string()),
+    };
     match (profile, ClaudeSession::from_env()) {
         (Some(name), _) => join_as_profile(&name, link).await,
-        (None, Some(session)) => join(&session, relay, link).await,
-        (None, None) => join_as_agent(relay, link).await,
+        (None, Some(session)) => join(&session, &relay, link).await,
+        (None, None) => join_as_agent(&relay, link).await,
     }
 }
 
@@ -297,10 +306,14 @@ mod tests {
     }
 
     #[test]
-    fn an_invite_link_names_its_relay() {
-        assert_eq!(relay_of_invite("https://app.buccanet.com/join/abc").as_deref(), Some("https://app.buccanet.com"));
-        assert_eq!(relay_of_invite("http://localhost:8759/join/abc").as_deref(), Some("http://localhost:8759"));
-        assert_eq!(relay_of_invite("abc"), None);
-        assert_eq!(relay_of_invite("ftp://x/join/abc"), None);
+    fn an_invite_link_names_an_https_relay_or_one_on_this_machine() {
+        let relay = |link: &str| relay_of_invite(link).ok().flatten();
+        assert_eq!(relay("https://app.buccanet.com/join/abc").as_deref(), Some("https://app.buccanet.com"));
+        assert_eq!(relay("http://localhost:8759/join/abc").as_deref(), Some("http://localhost:8759"));
+        assert_eq!(relay("abc"), None);
+        for refused in ["ftp://x/join/abc", "http://app:8758/join/abc", "http://192.168.1.4/join/abc", "http://relay.example.com/join/abc"]
+        {
+            assert!(relay_of_invite(refused).is_err(), "{refused} is accepted");
+        }
     }
 }

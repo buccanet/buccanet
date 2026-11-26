@@ -35,21 +35,59 @@ pub fn invite_token(link: &str) -> Result<String, SdkError> {
     valid.then(|| token.to_string()).ok_or_else(|| SdkError::Invalid("not a Buccanet invite link".into()))
 }
 
-/// A relay the device may send its token to: HTTPS anywhere, plain HTTP only on this machine
-/// or a private network, where a development relay runs or a service reaches the relay of its
-/// own deployment by a container name such as `app`, a name without a dot.
-pub fn check_relay_url(base: &str) -> Result<(), SdkError> {
-    let url = reqwest::Url::parse(base).map_err(|_| SdkError::Invalid(format!("{base} is not a relay URL")))?;
-    let local = match url.host() {
-        Some(url::Host::Domain(domain)) => domain == "localhost" || !domain.contains('.'),
-        Some(url::Host::Ipv4(ip)) => ip.is_loopback() || ip.is_private(),
-        Some(url::Host::Ipv6(ip)) => ip.is_loopback() || ip.is_unique_local(),
-        None => false,
+/// How far a relay's host is from this device.
+#[derive(PartialEq, PartialOrd)]
+enum Reach {
+    /// This machine: `localhost` or a loopback address.
+    Loopback,
+    /// A private network, or a name without a dot such as the container name `app`.
+    Private,
+    Public,
+}
+
+fn reach(url: &reqwest::Url) -> Reach {
+    let (loopback, private) = match url.host() {
+        Some(url::Host::Domain(domain)) => (domain == "localhost", !domain.contains('.')),
+        Some(url::Host::Ipv4(ip)) => (ip.is_loopback(), ip.is_private()),
+        Some(url::Host::Ipv6(ip)) => (ip.is_loopback(), ip.is_unique_local()),
+        None => (false, false),
     };
-    match url.scheme() {
-        "https" => Ok(()),
-        "http" if local => Ok(()),
-        _ => Err(SdkError::Invalid(format!("{base} must use https: the device token would travel in clear"))),
+    match (loopback, private) {
+        (true, _) => Reach::Loopback,
+        (false, true) => Reach::Private,
+        (false, false) => Reach::Public,
+    }
+}
+
+/// Whether the token may travel to `base`: over HTTPS anywhere, over plain HTTP up to `farthest`.
+fn transport_allowed(base: &str, farthest: Reach) -> Result<bool, SdkError> {
+    let url = reqwest::Url::parse(base).map_err(|_| SdkError::Invalid(format!("{base} is not a relay URL")))?;
+    Ok(match url.scheme() {
+        "https" => true,
+        "http" => reach(&url) <= farthest,
+        _ => false,
+    })
+}
+
+/// A relay the device may send its token to, as its operator names it: HTTPS anywhere, plain
+/// HTTP only on this machine or a private network, where a development relay runs or a service
+/// reaches the relay of its own deployment by a container name such as `app`, a name without a
+/// dot.
+pub fn check_relay_url(base: &str) -> Result<(), SdkError> {
+    match transport_allowed(base, Reach::Private)? {
+        true => Ok(()),
+        false => Err(SdkError::Invalid(format!("{base} must use https: the device token would travel in clear"))),
+    }
+}
+
+/// A relay named by an invite link, which anyone can write: HTTPS, or plain HTTP on this machine
+/// only. A link cannot point a device at a plain HTTP host of its network.
+pub fn check_invite_relay(base: &str) -> Result<(), SdkError> {
+    match transport_allowed(base, Reach::Loopback)? {
+        true => Ok(()),
+        false => Err(SdkError::Invalid(format!(
+            "the invite link names {base}, which an invite link may name only over https or on this machine: name it with --relay or BUCCANET_RELAY if you trust it"
+        ))),
     }
 }
 
@@ -164,7 +202,7 @@ impl RelayClient {
 
 #[cfg(test)]
 mod tests {
-    use super::{check_relay_url, invite_token};
+    use super::{check_invite_relay, check_relay_url, invite_token};
 
     #[test]
     fn plain_http_only_reaches_local_relays() {
@@ -175,6 +213,17 @@ mod tests {
         assert!(check_relay_url("http://app:8758").is_ok());
         assert!(check_relay_url("http://relay.example.com").is_err());
         assert!(check_relay_url("ftp://127.0.0.1").is_err());
+    }
+
+    #[test]
+    fn an_invite_link_names_an_https_relay_or_one_on_this_machine() {
+        assert!(check_invite_relay("https://app.buccanet.com").is_ok());
+        assert!(check_invite_relay("http://localhost:8759").is_ok());
+        assert!(check_invite_relay("http://127.0.0.1:8759").is_ok());
+        assert!(check_invite_relay("http://[::1]:8759").is_ok());
+        assert!(check_invite_relay("http://app:8758").is_err());
+        assert!(check_invite_relay("http://10.0.2.2:8758").is_err());
+        assert!(check_invite_relay("http://relay.example.com").is_err());
     }
 
     #[test]

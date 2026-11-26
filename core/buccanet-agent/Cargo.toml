@@ -11,10 +11,5 @@ rust-version.workspace = true
 buccanet-sdk.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-# Patterns run on bytes in ASCII mode, so the Unicode tables stay out of the WebAssembly build.
+# The fence markers are matched in ASCII mode, so no Unicode table of regex enters the WebAssembly build.
 regex = { version = "1", default-features = false, features = ["std"] }
-
-[build-dependencies]
-serde.workspace = true
-serde_json.workspace = true
-toml = "0.8"

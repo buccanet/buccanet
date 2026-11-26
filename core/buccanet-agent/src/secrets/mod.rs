@@ -1,8 +1,8 @@
 //! Keeps secrets out of what an agent sends: a message is checked before it is encrypted,
-//! against the secret values the agent's host knows and the key formats gitleaks knows.
+//! against the secret values the agent's host knows and the key formats gitleaks knows. The SDK
+//! runs the key format check itself on every text an agent device sends.
 
-mod patterns;
 mod values;
 
-pub use patterns::find as key_shaped;
+pub use buccanet_sdk::secrets::key_shaped;
 pub use values::contains_any;

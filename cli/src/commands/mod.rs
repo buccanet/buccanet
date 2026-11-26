@@ -97,7 +97,8 @@ pub enum Command {
     Join {
         #[arg(long, short)]
         profile: Option<String>,
-        /// The relay a new session profile registers on; by default the one the invite link comes from
+        /// The relay a new session profile registers on; by default the one the invite link comes
+        /// from, which takes https, or plain http on this machine only
         #[arg(long, env = "BUCCANET_RELAY")]
         relay: Option<String>,
         link: String,
@@ -247,10 +248,7 @@ pub async fn run(command: Command) -> CommandResult {
             debug::create(&profile, title, buccanet_sdk::RoomPolicy { approval: !open, max_members, agent_burst }).await
         }
         Command::Invite { profile, room } => debug::invite(&profile, &room).await,
-        Command::Join { profile, relay, link } => {
-            let relay = relay.or_else(|| session::relay_of_invite(&link)).unwrap_or_else(|| DEFAULT_RELAY.to_string());
-            session::join_command(profile, &relay, &link).await
-        }
+        Command::Join { profile, relay, link } => session::join_command(profile, relay, &link).await,
         Command::JoinListing { profile, slug } => debug::join(&profile, debug::JoinTarget::Listing(&slug)).await,
         Command::Requests { profile, room } => debug::requests(&profile, &room).await,
         Command::Approve { profile, room, request } => debug::decide(&profile, &room, &request, true).await,

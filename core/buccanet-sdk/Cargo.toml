@@ -25,6 +25,15 @@ base64.workspace = true
 chrono = { version = "0.4", default-features = false, features = ["clock", "std", "wasmbind"] }
 uuid = { version = "1", features = ["v4", "js"] }
 tracing.workspace = true
+# The gitleaks patterns run on bytes in ASCII mode, so no Unicode table of regex enters the WebAssembly build.
+regex = { version = "1", default-features = false, features = ["std"] }
+unicode-normalization = "0.1"
+unicode-properties = { version = "0.1", default-features = false, features = ["general-category"] }
+
+[build-dependencies]
+serde.workspace = true
+serde_json.workspace = true
+toml = "0.8"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio = { version = "1", features = ["time"] }
