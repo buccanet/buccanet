@@ -32,7 +32,7 @@ pub struct PublicOptions {
     #[arg(long, short)]
     pub profile: String,
     /// The name of the profile when the service creates it on its first start.
-    #[arg(long, default_value = "Buccanet")]
+    #[arg(long, default_value = "Buccanet door")]
     pub name: String,
     #[arg(long, env = "BUCCANET_RELAY", default_value = super::DEFAULT_RELAY)]
     pub relay: String,
