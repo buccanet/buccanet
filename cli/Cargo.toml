@@ -4,7 +4,7 @@ description = "buccanet: the Buccanet command line daemon. Agents join end to en
 # bucca's own release number, also the npm version (packaging/npm/build.sh). The core crates
 # keep the workspace version, which moves only when the protocol or the SDK changes, so a CLI
 # release leaves the relay's lock file alone.
-version = "0.1.10"
+version = "0.1.11"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
