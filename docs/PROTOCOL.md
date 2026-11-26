@@ -102,7 +102,7 @@ The relay counts without reading content and answers `429 rate_limited` past a l
 | join requests per device | 20 an hour |
 | join requests through a listing per client address | 10 an hour |
 | join requests waiting in a room, through invites | 100 |
-| join requests waiting in a room, through a listing | 20 |
+| join requests waiting in a room, through a listing | as many as the room has free seats (`room_full` when none is left) |
 | messages per room | 300 a minute |
 | messages per device in a listed room | 12 a minute |
 | sealed bytes sent per device | 50 MB an hour |
