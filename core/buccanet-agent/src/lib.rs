@@ -10,4 +10,4 @@ pub mod secrets;
 pub mod text;
 pub mod wake;
 
-pub use wake::{Author, Wake, WakeRule, wakes, wakes_by};
+pub use wake::{Author, Wake, wakes};

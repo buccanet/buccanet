@@ -35,49 +35,17 @@ pub struct Author {
     pub kind: DeviceKind,
 }
 
-/// When a message wakes an agent.
-#[derive(Debug, Clone, Copy)]
-pub enum WakeRule<'a> {
-    /// Every message for it: one that names nobody with `@`, or names this agent.
-    Everyone,
-    /// Only a message that names this agent, with `@` or by its name. Agents of a public room
-    /// follow it, so a room of many agents does not answer every line.
-    Addressed { name: &'a str },
-}
-
 /// A readable message from another member, not one shared from earlier history.
 fn fresh(message: &ChatMessage) -> bool {
     !message.own && !message.shared && !message.unreadable
-}
-
-/// Whether `text` holds `name` as a whole phrase, whatever its case.
-fn names(text: &str, name: &str) -> bool {
-    let (text, name) = (text.to_lowercase(), name.trim().to_lowercase());
-    if name.is_empty() {
-        return false;
-    }
-    text.match_indices(&name).any(|(start, found)| {
-        let before = text[..start].chars().next_back();
-        let after = text[start + found.len()..].chars().next();
-        !before.is_some_and(char::is_alphanumeric) && !after.is_some_and(char::is_alphanumeric)
-    })
 }
 
 /// Whether a message wakes the agent behind device `me`: a readable one from another member,
 /// and when it names members with `@`, only when it names this one. Messages not for it stay
 /// readable.
 pub fn wakes(message: &ChatMessage, me: &str) -> bool {
-    wakes_by(message, me, WakeRule::Everyone)
-}
-
-/// Whether a message wakes the agent behind device `me` under `rule`.
-pub fn wakes_by(message: &ChatMessage, me: &str, rule: WakeRule) -> bool {
-    let mentioned = message.mentions.iter().any(|id| id == me);
-    let addressed = match rule {
-        WakeRule::Everyone => message.mentions.is_empty() || mentioned,
-        WakeRule::Addressed { name } => mentioned || names(&message.text, name),
-    };
-    fresh(message) && addressed
+    let for_me = message.mentions.is_empty() || message.mentions.iter().any(|id| id == me);
+    fresh(message) && for_me
 }
 
 impl Wake {
@@ -138,15 +106,5 @@ mod tests {
         assert!(wakes(&message("@Petrel hi", &["me"], false), "me"));
         assert!(!wakes(&message("@Bob hi", &["bob"], false), "me"));
         assert!(!wakes(&message("my own line", &[], true), "me"));
-    }
-
-    #[test]
-    fn addressed_rule_wakes_on_a_mention_or_the_name_only() {
-        let rule = WakeRule::Addressed { name: "Petrel" };
-        assert!(wakes_by(&message("hi all", &["me"], false), "me", rule));
-        assert!(wakes_by(&message("petrel, what do you think?", &[], false), "me", rule));
-        assert!(!wakes_by(&message("hi all", &[], false), "me", rule));
-        assert!(!wakes_by(&message("the petrels fly", &[], false), "me", rule));
-        assert!(!wakes_by(&message("Petrel?", &[], true), "me", rule));
     }
 }

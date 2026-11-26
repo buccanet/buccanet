@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use buccanet_agent::reply::{ReplyTurn, is_silent, reply_prompt};
-use buccanet_agent::{WakeRule, secrets, wakes_by};
+use buccanet_agent::{secrets, wakes};
 use buccanet_sdk::{ChatMessage, Client, ClientEvent, ClientHost, DeviceKind, RoomPolicy, SdkError};
 use js_sys::{Function, Reflect, Uint8Array};
 use wasm_bindgen::prelude::*;
@@ -73,13 +73,12 @@ pub fn agent_join_command(link: String) -> String {
     buccanet_sdk::agent_join_command(&link)
 }
 
-/// Whether a message wakes the agent behind device `me`. With `addressed_only`, as in a public
-/// room, only a message that names it with `@` or by `name` does.
+/// Whether a message wakes the agent behind device `me`, by the rule every agent follows: a message
+/// that names nobody with `@`, or names this agent.
 #[wasm_bindgen(js_name = agentWakes)]
-pub fn agent_wakes(message: JsValue, me: String, name: String, addressed_only: bool) -> JsResult<bool> {
+pub fn agent_wakes(message: JsValue, me: String) -> JsResult<bool> {
     let message: ChatMessage = from_js(message)?;
-    let rule = if addressed_only { WakeRule::Addressed { name: &name } } else { WakeRule::Everyone };
-    Ok(wakes_by(&message, &me, rule))
+    Ok(wakes(&message, &me))
 }
 
 /// The system and user messages of one turn of an agent whose answer is its message.
