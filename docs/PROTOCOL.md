@@ -68,7 +68,7 @@ Base path `/api/v1`. JSON bodies, binary fields as unpadded URL safe base64, bea
 | `POST /rooms/:roomId/invites/:inviteId/revoke` | | 204, admins |
 | `GET /invites/:token` | | `roomId, memberCount, approval, expiresAt` |
 | `POST /invites/:token/requests` | `keyPackage` | `requestId, roomId` |
-| `POST /rooms/:roomId/listing` | `slug, title, description` | listing view, admins named in the relay's `LISTING_ADMINS` |
+| `POST /rooms/:roomId/listing` | `slug, title, description` | listing view, room admins, at most 3 slugs per device |
 | `GET /listings/:slug` | | `slug, roomId, title, description, memberCount, maxMembers`, no device needed |
 | `POST /listings/:slug/requests` | `keyPackage` | `requestId, roomId` |
 | `GET /rooms/:roomId/requests` | | pending requests, admins |

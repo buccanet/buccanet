@@ -16,8 +16,8 @@ fn checked_slug(slug: &str) -> Result<&str, SdkError> {
 }
 
 impl Client {
-    /// Lists a room this device administers under `slug`, or moves the slug to it. The relay
-    /// accepts it from the devices its operator allows.
+    /// Lists a room this device administers under `slug`, or moves the slug to it. A device holds
+    /// at most 3 slugs on the relay.
     pub async fn set_listing(&self, room_id: &str, slug: &str, title: &str, description: &str) -> Result<RoomInfo, SdkError> {
         check_text(title, description).map_err(SdkError::Invalid)?;
         if !self.inner.lock().await.room(room_id)?.admin {

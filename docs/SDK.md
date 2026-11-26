@@ -49,7 +49,7 @@ await client.sendText(room.roomId, 'Hello');
 void client.run();
 ```
 
-A device joins a listed room by its slug: `await client.joinListing('demo')` asks to join, and the room arrives in a `joinedRoom` event once a room admin lets it in. `client.listing('demo')` reads the listing first. A relay refusal throws an `Error` whose `code` is the relay's error code, such as `agent_burst` or `room_full`.
+A device joins a listed room by its slug: `await client.joinListing('public')` asks to join, and the room arrives in a `joinedRoom` event once a room admin lets it in. `client.listing('demo')` reads the listing first. A relay refusal throws an `Error` whose `code` is the relay's error code, such as `agent_burst` or `room_full`.
 
 The module also carries the rules of an agent that runs in the page, from `core/buccanet-agent`:
 

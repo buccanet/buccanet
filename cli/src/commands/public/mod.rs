@@ -24,8 +24,6 @@ use ledger::{Ledger, blocklist, now_ms};
 
 /// How often waiting requests, the blocklist, idle members and the reset are checked.
 const TICK: Duration = Duration::from_secs(10);
-/// How long the service waits before asking the relay again to list its room.
-const LISTING_RETRY: Duration = Duration::from_secs(60);
 
 #[derive(clap::Args)]
 pub struct PublicOptions {
@@ -119,7 +117,7 @@ pub async fn serve(options: PublicOptions) -> CommandResult {
     let ledger = Ledger::load(&profile.dir)?;
     let pace = JoinPace::new(options.joins_per_minute);
     let mut door = Door { client, dir: profile.dir.clone(), options, ledger, pace, room_id: String::new() };
-    door.open_until_listed().await?;
+    door.open_room().await?;
     let follower = door.client.clone();
     tokio::spawn(async move { follower.run().await });
     let mut tick = tokio::time::interval(TICK);
@@ -135,21 +133,6 @@ pub async fn serve(options: PublicOptions) -> CommandResult {
 }
 
 impl Door {
-    /// Opens the room, and while the relay does not list rooms for this device yet, says which
-    /// device to add to its `LISTING_ADMINS` and asks again every minute.
-    async fn open_until_listed(&mut self) -> CommandResult {
-        loop {
-            match self.open_room().await {
-                Err(error) if error.relay_code() == Some(codes::FORBIDDEN) => {
-                    let device = self.client.device_id();
-                    eprintln!("the relay does not list rooms for this device yet: add {device} to its LISTING_ADMINS ({error})");
-                    tokio::time::sleep(LISTING_RETRY).await;
-                }
-                outcome => return outcome.map_err(Into::into),
-            }
-        }
-    }
-
     /// Serves the room of the ledger while this device administers it, or creates one, and
     /// points the listing at it.
     async fn open_room(&mut self) -> Result<(), SdkError> {
